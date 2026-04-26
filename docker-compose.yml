@@ -1,0 +1,146 @@
+name: opencau-agent
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app_internal
+
+  sandbox-template:
+    image: ${SANDBOX_IMAGE:-opencau-agent-sandbox:latest}
+    build:
+      context: ./sandbox
+    environment:
+      DISPLAY: ":1"
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1920}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-1080}
+      DISPLAY_DEPTH: ${DISPLAY_DEPTH:-24}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+      - /run/user/1200:rw,nosuid,nodev,size=128m,uid=1200,gid=1200,mode=0700
+      - /var/tmp:rw,nosuid,nodev,size=256m,uid=1200,gid=1200,mode=1777
+      - /home/agent:rw,nosuid,nodev,size=512m,uid=1200,gid=1200,mode=0700
+    mem_limit: ${SANDBOX_MEMORY_LIMIT:-2g}
+    cpus: ${SANDBOX_CPUS:-2.0}
+    pids_limit: ${SANDBOX_PIDS_LIMIT:-512}
+    init: true
+    labels:
+      opencau.role: sandbox-template
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - app_internal
+
+  sandbox-controller:
+    build:
+      context: ./sandbox-controller
+    environment:
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-opencau-agent-sandbox:latest}
+      SANDBOX_NETWORK: ${SANDBOX_NETWORK:-opencau_agent_internal}
+      SANDBOX_MEMORY_LIMIT: ${SANDBOX_MEMORY_LIMIT:-2g}
+      SANDBOX_CPUS: ${SANDBOX_CPUS:-2.0}
+      SANDBOX_PIDS_LIMIT: ${SANDBOX_PIDS_LIMIT:-512}
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1920}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-1080}
+      DISPLAY_DEPTH: ${DISPLAY_DEPTH:-24}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      sandbox-template:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app_internal
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      SANDBOX_CONTROLLER_URL: ${SANDBOX_CONTROLLER_URL:-http://sandbox-controller:8100}
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1920}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-1080}
+      DISPLAY_DEPTH: ${DISPLAY_DEPTH:-24}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SQLITE_PATH: ${SQLITE_PATH:-/data/opencau-agent.sqlite}
+      SCREENSHOT_DIR: ${SCREENSHOT_DIR:-/data/screenshots}
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      sandbox-controller:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app_internal
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - app_internal
+
+volumes:
+  app-data:
+
+networks:
+  app_internal:
+    name: opencau_agent_internal
