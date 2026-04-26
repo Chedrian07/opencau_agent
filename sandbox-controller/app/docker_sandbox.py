@@ -7,7 +7,7 @@ import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 
-from app.commands import command_for
+from app.commands import READ_SCREENSHOT_COMMAND, command_for
 from app.config import Settings
 from app.schemas import CommandRequest, CommandResult, SessionResponse
 
@@ -139,6 +139,21 @@ def run_allowed_command(session_id: str, request: CommandRequest) -> CommandResu
             stdout=(stdout_raw or b"").decode("utf-8", errors="replace")[:8000],
             stderr=(stderr_raw or b"").decode("utf-8", errors="replace")[:8000],
         )
+
+
+def capture_screenshot_png(session_id: str) -> bytes | None:
+    command = command_for(CommandRequest(operation="screenshot"))
+    with docker_client() as client:
+        container = _find_container(client, session_id)
+        if container is None:
+            return None
+        result = container.exec_run(command)
+        if result.exit_code != 0:
+            return None
+        read_result = container.exec_run(READ_SCREENSHOT_COMMAND)
+        if read_result.exit_code != 0 or not read_result.output:
+            return None
+        return bytes(read_result.output)
 
 
 def sandbox_host(session_id: str) -> str | None:

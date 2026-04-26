@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, sessions, vnc_proxy
+from app.api import events, health, sessions, vnc_proxy
 from app.config import get_settings
 
 
@@ -18,4 +18,6 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
+app.include_router(events.router, prefix="/api")
+app.include_router(events.ws_router)
 app.include_router(vnc_proxy.router)

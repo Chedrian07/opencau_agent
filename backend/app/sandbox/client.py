@@ -49,3 +49,9 @@ class SandboxClient:
             response.raise_for_status()
             data = response.json()
         return CommandSmokeResult(**data)
+
+    async def capture_screenshot(self, session_id: str) -> bytes:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(f"{self._base_url}/sessions/{session_id}/screenshots/latest.png")
+            response.raise_for_status()
+            return response.content

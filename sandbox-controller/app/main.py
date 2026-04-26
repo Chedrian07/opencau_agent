@@ -10,6 +10,7 @@ import websockets
 from app.config import Settings, get_settings
 from app.docker_sandbox import (
     SandboxStartupError,
+    capture_screenshot_png,
     create_sandbox,
     delete_sandbox,
     inspect_sandbox,
@@ -80,6 +81,14 @@ async def delete_session(session_id: SessionId) -> None:
 @app.post("/sessions/{session_id}/commands", response_model=CommandResult)
 async def run_command(session_id: SessionId, request: CommandRequest) -> CommandResult:
     return run_allowed_command(session_id, request)
+
+
+@app.get("/sessions/{session_id}/screenshots/latest.png")
+async def get_latest_screenshot(session_id: SessionId) -> Response:
+    image = capture_screenshot_png(session_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail={"code": "SCREENSHOT_NOT_AVAILABLE"})
+    return Response(content=image, media_type="image/png")
 
 
 @app.api_route("/sessions/{session_id}/vnc/{path:path}", methods=["GET", "POST", "OPTIONS"])

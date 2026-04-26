@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from httpx import HTTPError
 
+from app.agent.events import event_broker
 from app.config import Settings, get_settings
 from app.sandbox.client import SandboxClient
 from app.schemas.sessions import (
@@ -27,7 +28,10 @@ async def create_session(
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
 ) -> SessionInfo:
     try:
-        return await sandbox_client.create_session(request.session_id)
+        session = await sandbox_client.create_session(request.session_id)
+        await event_broker.clear(session.session_id)
+        await event_broker.publish(session.session_id, "session_created")
+        return session
     except HTTPError as exc:
         raise HTTPException(status_code=502, detail={"code": "SANDBOX_CONTROLLER_ERROR"}) from exc
 
@@ -50,6 +54,7 @@ async def delete_session(
 ) -> None:
     try:
         await sandbox_client.delete_session(session_id)
+        await event_broker.clear(session_id)
     except HTTPError as exc:
         raise HTTPException(status_code=502, detail={"code": "SANDBOX_CONTROLLER_ERROR"}) from exc
 

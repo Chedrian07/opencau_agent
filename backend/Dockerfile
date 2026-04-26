@@ -10,7 +10,9 @@ RUN pip install --no-cache-dir .
 
 COPY app ./app
 
-RUN useradd --create-home --shell /usr/sbin/nologin appuser
+RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data/screenshots \
+    && chown -R appuser:appuser /data
 USER appuser
 
 EXPOSE 8000
