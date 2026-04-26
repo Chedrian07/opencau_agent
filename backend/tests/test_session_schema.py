@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.config import Settings
 from app.schemas.sessions import CreateSessionRequest
 
 
@@ -23,6 +24,13 @@ class CreateSessionRequestTests(unittest.TestCase):
     def test_rejects_unsafe_session_id(self) -> None:
         with self.assertRaises(ValidationError):
             CreateSessionRequest(session_id="../host")
+
+
+class SettingsTests(unittest.TestCase):
+    def test_cors_origins_are_split_and_trimmed(self) -> None:
+        settings = Settings(backend_cors_origins="http://localhost:3000, http://127.0.0.1:3000")
+
+        self.assertEqual(settings.cors_origins, ["http://localhost:3000", "http://127.0.0.1:3000"])
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ Current implementation phase: **Phase 0 foundation**. This slice provides:
 - Restricted sandbox-controller API with Docker socket isolated to that service.
 - Ubuntu desktop sandbox image with Xvfb, Xfce, x11vnc, noVNC, xdotool, and scrot.
 - Minimal Next.js frontend that can create and delete a sandbox session.
+- Backend CORS limited to local frontend origins by default.
 
 ## Run
 
