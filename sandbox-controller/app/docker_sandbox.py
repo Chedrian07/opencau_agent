@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+import time
 from typing import Any
 
 import docker
@@ -13,6 +14,10 @@ from app.schemas import CommandRequest, CommandResult, SessionResponse
 LABEL_ROLE = "opencau.role"
 LABEL_SESSION = "opencau.session_id"
 SANDBOX_ROLE = "sandbox"
+
+
+class SandboxStartupError(RuntimeError):
+    pass
 
 
 def container_name(session_id: str) -> str:
@@ -46,6 +51,20 @@ def _find_container(client: docker.DockerClient, session_id: str) -> Container |
         return client.containers.get(container_name(session_id))
     except NotFound:
         return None
+
+
+def _wait_until_ready(container: Container, timeout_sec: int) -> bool:
+    deadline = time.monotonic() + timeout_sec
+    healthcheck = command_for(CommandRequest(operation="healthcheck"))
+    while time.monotonic() < deadline:
+        container.reload()
+        if container.status != "running":
+            return False
+        result = container.exec_run(healthcheck)
+        if result.exit_code == 0:
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def create_sandbox(settings: Settings, session_id: str) -> SessionResponse:
@@ -83,6 +102,9 @@ def create_sandbox(settings: Settings, session_id: str) -> SessionResponse:
             "name": container_name(session_id),
         }
         container = client.containers.run(settings.sandbox_image, **host_config)
+        if not _wait_until_ready(container, settings.sandbox_start_timeout_sec):
+            container.remove(force=True)
+            raise SandboxStartupError(f"sandbox {session_id} did not become ready")
         return _session_response(session_id, container)
 
 

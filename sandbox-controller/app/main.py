@@ -8,7 +8,14 @@ from fastapi.responses import Response, StreamingResponse
 import websockets
 
 from app.config import Settings, get_settings
-from app.docker_sandbox import create_sandbox, delete_sandbox, inspect_sandbox, run_allowed_command, sandbox_host
+from app.docker_sandbox import (
+    SandboxStartupError,
+    create_sandbox,
+    delete_sandbox,
+    inspect_sandbox,
+    run_allowed_command,
+    sandbox_host,
+)
 from app.schemas import SESSION_ID_PATTERN, CommandRequest, CommandResult, CreateSessionRequest, SessionResponse
 
 app = FastAPI(title="OpenCAU Sandbox Controller", version="0.1.0")
@@ -54,7 +61,10 @@ async def health() -> dict[str, str]:
 @app.post("/sessions", response_model=SessionResponse, status_code=201)
 async def create_session(request: CreateSessionRequest) -> SessionResponse:
     settings = get_settings()
-    return create_sandbox(settings, request.session_id)
+    try:
+        return create_sandbox(settings, request.session_id)
+    except SandboxStartupError as exc:
+        raise HTTPException(status_code=504, detail={"code": "SANDBOX_STARTUP_TIMEOUT"}) from exc
 
 
 @app.get("/sessions/{session_id}", response_model=SessionResponse)

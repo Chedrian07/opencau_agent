@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     sandbox_memory_limit: str = "2g"
     sandbox_cpus: float = Field(default=2.0, gt=0)
     sandbox_pids_limit: int = Field(default=512, ge=64)
+    sandbox_start_timeout_sec: int = Field(default=30, ge=1, le=120)
     display_width: int = Field(default=1920, ge=1)
     display_height: int = Field(default=1080, ge=1)
     display_depth: int = Field(default=24, ge=1)

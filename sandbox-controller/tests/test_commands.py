@@ -7,6 +7,7 @@ from pydantic import ValidationError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.commands import ALLOWED_COMMANDS, command_for
+from app.config import Settings
 from app.schemas import CommandRequest, CreateSessionRequest
 
 
@@ -31,6 +32,12 @@ class SessionIdTests(unittest.TestCase):
     def test_rejects_path_like_session_id(self) -> None:
         with self.assertRaises(ValidationError):
             CreateSessionRequest(session_id="../bad")
+
+
+class SettingsTests(unittest.TestCase):
+    def test_start_timeout_is_bounded(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(sandbox_start_timeout_sec=0)
 
 
 if __name__ == "__main__":
