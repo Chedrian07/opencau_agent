@@ -43,6 +43,7 @@ RUN apt-get update \
 RUN groupadd --gid 1200 agent \
     && useradd --create-home --uid 1200 --gid 1200 --shell /bin/bash agent \
     && mkdir -p /home/agent/.config /home/agent/Downloads /workspace \
+    && printf '{"name":"novnc","version":"1.3.0"}\n' > /usr/share/novnc/package.json \
     && chown -R agent:agent /home/agent /workspace
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
