@@ -12,6 +12,32 @@ export type HealthInfo = {
     height: number;
     depth: number;
   };
+  llm?: {
+    profile: string;
+    model: string;
+    tool_mode: string;
+    state_mode: string;
+  };
+  agent?: {
+    max_steps: number;
+    timeout_sec: number;
+  };
+};
+
+export type PreflightCheck = {
+  name: string;
+  status: "ok" | "warning" | "error" | "skipped";
+  detail: string;
+};
+
+export type PreflightReport = {
+  profile: string;
+  model: string;
+  base_url: string;
+  tool_mode: string;
+  state_mode: string;
+  overall: "ok" | "warning" | "error" | "skipped";
+  checks: PreflightCheck[];
 };
 
 export type EventType =
@@ -114,6 +140,10 @@ async function parseJson<T>(response: Response): Promise<T> {
 
 export async function getHealth(): Promise<HealthInfo> {
   return parseJson<HealthInfo>(await fetch(`${backendUrl}/api/health`, { cache: "no-store" }));
+}
+
+export async function getPreflight(): Promise<PreflightReport> {
+  return parseJson<PreflightReport>(await fetch(`${backendUrl}/api/preflight`, { cache: "no-store" }));
 }
 
 export async function createSession(): Promise<SessionInfo> {

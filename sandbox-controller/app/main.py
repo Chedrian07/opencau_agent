@@ -10,14 +10,24 @@ import websockets
 from app.config import Settings, get_settings
 from app.docker_sandbox import (
     SandboxStartupError,
+    capture_latest_action_screenshot,
     capture_screenshot_png,
     create_sandbox,
     delete_sandbox,
+    execute_action,
     inspect_sandbox,
     run_allowed_command,
     sandbox_host,
 )
-from app.schemas import SESSION_ID_PATTERN, CommandRequest, CommandResult, CreateSessionRequest, SessionResponse
+from app.schemas import (
+    SESSION_ID_PATTERN,
+    ActionRequest,
+    ActionResponse,
+    CommandRequest,
+    CommandResult,
+    CreateSessionRequest,
+    SessionResponse,
+)
 
 app = FastAPI(title="OpenCAU Sandbox Controller", version="0.1.0")
 SessionId = Annotated[str, Path(pattern=SESSION_ID_PATTERN)]
@@ -86,6 +96,19 @@ async def run_command(session_id: SessionId, request: CommandRequest) -> Command
 @app.get("/sessions/{session_id}/screenshots/latest.png")
 async def get_latest_screenshot(session_id: SessionId) -> Response:
     image = capture_screenshot_png(session_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail={"code": "SCREENSHOT_NOT_AVAILABLE"})
+    return Response(content=image, media_type="image/png")
+
+
+@app.post("/sessions/{session_id}/actions", response_model=ActionResponse)
+async def run_action(session_id: SessionId, request: ActionRequest) -> ActionResponse:
+    return execute_action(session_id, request)
+
+
+@app.get("/sessions/{session_id}/screenshots/action-latest.png")
+async def get_latest_action_screenshot(session_id: SessionId) -> Response:
+    image = capture_latest_action_screenshot(session_id)
     if image is None:
         raise HTTPException(status_code=404, detail={"code": "SCREENSHOT_NOT_AVAILABLE"})
     return Response(content=image, media_type="image/png")

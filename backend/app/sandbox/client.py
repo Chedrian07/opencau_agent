@@ -55,3 +55,13 @@ class SandboxClient:
             response = await client.get(f"{self._base_url}/sessions/{session_id}/screenshots/latest.png")
             response.raise_for_status()
             return response.content
+
+    async def capture_action_screenshot(self, session_id: str) -> bytes | None:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self._base_url}/sessions/{session_id}/screenshots/action-latest.png"
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.content

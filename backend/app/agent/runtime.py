@@ -1,20 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import time
 
 from app.agent.events import event_broker
+from app.agent.loop import AgentLoopDeps, run_agent_loop
+from app.config import Settings, get_settings
+from app.llm.factory import build_adapter
+from app.sandbox.action_executor import ActionExecutor
 from app.sandbox.client import SandboxClient
 from app.storage.screenshot_store import ScreenshotStore
-
-
-def _operation_for_message(text: str) -> str:
-    lowered = text.casefold()
-    if any(token in lowered for token in ("health", "status", "상태", "헬스")):
-        return "healthcheck"
-    if any(token in lowered for token in ("click", "type", "xdotool", "클릭", "입력", "타입", "테스트")):
-        return "xdotool_click_type"
-    return "screenshot"
 
 
 class AgentRuntime:
@@ -30,6 +24,7 @@ class AgentRuntime:
         text: str,
         sandbox_client: SandboxClient,
         screenshot_store: ScreenshotStore,
+        settings: Settings | None = None,
     ) -> bool:
         async with self._lock:
             current = self._tasks.get(session_id)
@@ -48,6 +43,7 @@ class AgentRuntime:
                     text=text,
                     sandbox_client=sandbox_client,
                     screenshot_store=screenshot_store,
+                    settings=settings or get_settings(),
                 )
             )
             self._tasks[session_id] = task
@@ -79,6 +75,7 @@ class AgentRuntime:
     def _cleanup_task(self, session_id: str, completed: asyncio.Task[None]) -> None:
         if self._tasks.get(session_id) is completed:
             self._tasks.pop(session_id, None)
+        self._interrupts.discard(session_id)
 
     async def _run_message(
         self,
@@ -87,86 +84,19 @@ class AgentRuntime:
         text: str,
         sandbox_client: SandboxClient,
         screenshot_store: ScreenshotStore,
+        settings: Settings,
     ) -> None:
-        operation = _operation_for_message(text)
-        action = {"type": operation}
-        await event_broker.publish(
-            session_id,
-            "task_status",
-            label="Running desktop action",
-            state="running",
-            step=1,
-            max_steps=2,
+        deps = AgentLoopDeps(
+            settings=settings,
+            sandbox_client=sandbox_client,
+            screenshot_store=screenshot_store,
+            action_executor=ActionExecutor(settings),
+            adapter_factory=lambda: build_adapter(settings),
+            is_interrupted=lambda: self._is_interrupted(session_id),
         )
-        await event_broker.publish(
-            session_id,
-            "agent_reasoning_summary",
-            text="Phase 2 smoke runner selected a safe sandbox operation while the LLM loop is being wired.",
-        )
-        await event_broker.publish(session_id, "tool_call", tool="computer", args={"actions": [action]})
-
-        if self._is_interrupted(session_id):
-            await self._finish_interrupted(session_id)
-            return
-
-        started = time.monotonic()
         try:
-            result = await sandbox_client.run_smoke_command(session_id, operation)
-            duration_ms = int((time.monotonic() - started) * 1000)
-            status = "ok" if result.exit_code == 0 else "error"
-            await event_broker.publish(
-                session_id,
-                "action_executed",
-                action=action,
-                duration_ms=duration_ms,
-                status=status,
-                error_code=None if status == "ok" else "SANDBOX_COMMAND_FAILED",
-                message=result.stderr or result.stdout or None,
-            )
-            if status != "ok":
-                await event_broker.publish(
-                    session_id,
-                    "error",
-                    code="SANDBOX_COMMAND_FAILED",
-                    message=result.stderr or "Sandbox command failed.",
-                )
-                return
-
-            if self._is_interrupted(session_id):
-                await self._finish_interrupted(session_id)
-                return
-
-            await event_broker.publish(
-                session_id,
-                "task_status",
-                label="Capturing screenshot",
-                state="running",
-                step=2,
-                max_steps=2,
-            )
-            image = await sandbox_client.capture_screenshot(session_id)
-            screenshot = screenshot_store.save_png(session_id, image)
-            await event_broker.publish(
-                session_id,
-                "screenshot",
-                url=screenshot.url,
-                thumb_url=screenshot.thumb_url,
-                sha256=screenshot.sha256,
-            )
-            await event_broker.publish(
-                session_id,
-                "agent_message",
-                text="Desktop action completed. The latest screenshot is available in the event stream.",
-            )
-            await event_broker.publish(
-                session_id,
-                "task_status",
-                label="Desktop action complete",
-                state="done",
-                step=2,
-                max_steps=2,
-            )
-        except Exception as exc:
+            await run_agent_loop(session_id=session_id, user_message=text, deps=deps)
+        except Exception as exc:  # pragma: no cover - safety net
             await event_broker.publish(
                 session_id,
                 "error",
@@ -176,17 +106,9 @@ class AgentRuntime:
             await event_broker.publish(
                 session_id,
                 "task_status",
-                label="Desktop action failed",
+                label="Runtime crashed",
                 state="error",
             )
-
-    async def _finish_interrupted(self, session_id: str) -> None:
-        await event_broker.publish(
-            session_id,
-            "task_status",
-            label="Task interrupted",
-            state="interrupted",
-        )
 
 
 agent_runtime = AgentRuntime()

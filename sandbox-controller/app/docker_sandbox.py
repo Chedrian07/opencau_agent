@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+import json
 import time
 from typing import Any
 
@@ -7,9 +8,20 @@ import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 
-from app.commands import READ_SCREENSHOT_COMMAND, command_for
+from app.commands import (
+    READ_LATEST_SCREENSHOT_COMMAND,
+    READ_SCREENSHOT_COMMAND,
+    agent_action_command,
+    command_for,
+)
 from app.config import Settings
-from app.schemas import CommandRequest, CommandResult, SessionResponse
+from app.schemas import (
+    ActionRequest,
+    ActionResponse,
+    CommandRequest,
+    CommandResult,
+    SessionResponse,
+)
 
 LABEL_ROLE = "opencau.role"
 LABEL_SESSION = "opencau.session_id"
@@ -154,6 +166,56 @@ def capture_screenshot_png(session_id: str) -> bytes | None:
         if read_result.exit_code != 0 or not read_result.output:
             return None
         return bytes(read_result.output)
+
+
+def execute_action(session_id: str, request: ActionRequest) -> ActionResponse:
+    payload = request.model_dump(exclude_none=True)
+    command = agent_action_command(json.dumps(payload, separators=(",", ":")))
+    with docker_client() as client:
+        container = _find_container(client, session_id)
+        if container is None:
+            return ActionResponse(
+                status="error",
+                duration_ms=0,
+                error_code="SANDBOX_NOT_FOUND",
+                message=f"sandbox session {session_id} is not running",
+            )
+        result = container.exec_run(command, demux=False)
+        raw = (result.output or b"").decode("utf-8", errors="replace").strip()
+        parsed: dict[str, Any] | None = None
+        if raw:
+            try:
+                parsed = json.loads(raw.splitlines()[-1])
+            except json.JSONDecodeError:
+                parsed = None
+        if parsed is None:
+            return ActionResponse(
+                status="error",
+                duration_ms=0,
+                error_code="ACTION_PARSE_ERROR",
+                message=raw[:1000] if raw else f"exit_code={result.exit_code}",
+            )
+        status = parsed.get("status", "error")
+        duration_ms = int(parsed.get("duration_ms", 0))
+        return ActionResponse(
+            status="ok" if status == "ok" else "error",
+            duration_ms=max(duration_ms, 0),
+            output=str(parsed.get("output", ""))[:4000],
+            error_code=parsed.get("code") if status != "ok" else None,
+            message=parsed.get("message") if status != "ok" else None,
+            extra={k: v for k, v in parsed.items() if k not in {"status", "duration_ms", "output", "code", "message"}} or None,
+        )
+
+
+def capture_latest_action_screenshot(session_id: str) -> bytes | None:
+    with docker_client() as client:
+        container = _find_container(client, session_id)
+        if container is None:
+            return None
+        result = container.exec_run(READ_LATEST_SCREENSHOT_COMMAND)
+        if result.exit_code != 0 or not result.output:
+            return None
+        return bytes(result.output)
 
 
 def sandbox_host(session_id: str) -> str | None:

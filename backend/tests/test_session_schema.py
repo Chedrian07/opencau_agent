@@ -28,9 +28,22 @@ class CreateSessionRequestTests(unittest.TestCase):
 
 class SettingsTests(unittest.TestCase):
     def test_cors_origins_are_split_and_trimmed(self) -> None:
-        settings = Settings(backend_cors_origins="http://localhost:3000, http://127.0.0.1:3000")
+        settings = Settings(
+            _env_file=None,
+            backend_cors_origins="http://localhost:3000, http://127.0.0.1:3000",
+        )
 
         self.assertEqual(settings.cors_origins, ["http://localhost:3000", "http://127.0.0.1:3000"])
+
+    def test_lmstudio_alias_normalizes(self) -> None:
+        settings = Settings(_env_file=None, llm_profile="LMStudio")
+
+        self.assertEqual(settings.llm_profile, "lmstudio-responses")
+
+    def test_openai_alias_normalizes(self) -> None:
+        settings = Settings(_env_file=None, llm_profile="OpenAI")
+
+        self.assertEqual(settings.llm_profile, "openai-native")
 
 
 if __name__ == "__main__":

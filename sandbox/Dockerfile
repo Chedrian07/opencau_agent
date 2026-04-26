@@ -51,13 +51,15 @@ COPY scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
 COPY scripts/screenshot.sh /usr/local/bin/screenshot.sh
 COPY scripts/xdotool-smoke.sh /usr/local/bin/xdotool-smoke.sh
 COPY scripts/paste_text.py /usr/local/bin/paste_text.py
+COPY scripts/agent_action.py /usr/local/bin/agent_action.py
 
 RUN chmod +x \
       /usr/local/bin/entrypoint.sh \
       /usr/local/bin/healthcheck.sh \
       /usr/local/bin/screenshot.sh \
       /usr/local/bin/xdotool-smoke.sh \
-      /usr/local/bin/paste_text.py
+      /usr/local/bin/paste_text.py \
+      /usr/local/bin/agent_action.py
 
 EXPOSE 5900 6080
 
