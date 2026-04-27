@@ -10,12 +10,13 @@
 │  · interrupt  │               │  · /vnc/sessions/{id}/* (reverse proxy)  │
 └──────────────┘               │                                          │
                                 │  ┌──────────────────────────────────┐    │
-                                │  │ AgentRuntime / AgentLoop         │    │
-                                │  │  · LLMAdapter (factory by profile)│   │
-                                │  │  · ActionExecutor                │    │
-                                │  │  · ScreenshotStore               │    │
-                                │  │  · SessionEventBroker            │    │
-                                │  └────────────┬─────────────────────┘    │
+│  │ AgentRuntime / AgentLoop         │    │
+│  │  · LLMAdapter (factory by profile)│   │
+│  │  · ActionExecutor                │    │
+│  │  · ScreenshotStore               │    │
+│  │  · SessionEventBroker            │    │
+│  │  · Redis session + SQLite metadata│   │
+│  └────────────┬─────────────────────┘    │
                                 └───────────────┼──────────────────────────┘
                                                 │ internal HTTP
                                                 ▼
@@ -38,7 +39,7 @@
 ## Responsibilities
 
 - `frontend/`: Next.js 16 (Turbopack) chat + live VNC view, preflight banner, action cards.
-- `backend/`: FastAPI public surface, agent loop orchestration, LLM adapters, screenshot proxy.
+- `backend/`: FastAPI public surface, agent loop orchestration, LLM adapters, Redis-backed session state, SQLite metadata, screenshot proxy.
 - `sandbox-controller/`: restricted Docker lifecycle and the JSON action endpoint that drives `agent_action.py` inside each sandbox.
 - `sandbox/`: Ubuntu desktop image, X stack, and the `agent_action.py` helper that translates a single internal action into safe `xdotool`/`xclip`/`scrot` subprocess calls.
 
@@ -62,3 +63,11 @@ Defined in `app/schemas/actions.py`. Every external tool output (OpenAI native, 
 ## Event contract
 
 WebSocket payloads live in `app/schemas/events.py`. Screenshots are referenced by URL + sha256 only — base64 payloads are never streamed. Reasoning is exposed as `agent_reasoning_summary` only; raw chain-of-thought is not surfaced.
+
+## Persistence and cleanup
+
+- Redis stores active session IDs, container IDs, last-active timestamps, idle deadlines, and deletion markers.
+- SQLite stores session rows, user messages, frontend-visible event metadata, and screenshot metadata. The stored event JSON is validated to reject base64/data URL payloads.
+- Screenshot files live under `SCREENSHOT_DIR`; thumbnails are generated as WebP when Pillow is available, with PNG fallback.
+- The backend lifecycle starts a cleanup loop that deletes idle sandbox sessions and removes screenshot files older than `SCREENSHOT_RETENTION_HOURS`.
+- On startup, the backend reconciles labelled sandbox containers against Redis active sessions and deletes orphaned containers only when the Redis backend is reachable.

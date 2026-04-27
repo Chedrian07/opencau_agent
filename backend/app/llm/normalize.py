@@ -58,6 +58,16 @@ def _scale_fractional(value: Any, axis: int) -> Any:
 
 
 def _maybe_extract_point(raw: dict[str, Any]) -> tuple[int, int] | None:
+    if "x" in raw and "y" not in raw and isinstance(raw["x"], (list, tuple)) and len(raw["x"]) >= 2:
+        try:
+            return int(round(float(raw["x"][0]))), int(round(float(raw["x"][1])))
+        except (TypeError, ValueError):
+            pass
+    if "y" in raw and "x" not in raw and isinstance(raw["y"], (list, tuple)) and len(raw["y"]) >= 2:
+        try:
+            return int(round(float(raw["y"][0]))), int(round(float(raw["y"][1])))
+        except (TypeError, ValueError):
+            pass
     for key in ("box", "bbox", "start_box", "rect"):
         point = _bbox_to_point(raw.get(key))
         if point is not None:
@@ -96,8 +106,17 @@ def normalize_action(raw: dict[str, Any], *, display_width: int | None = None, d
 
     point = _maybe_extract_point(raw)
     if point is not None:
-        cleaned.setdefault("x", point[0])
-        cleaned.setdefault("y", point[1])
+        if (
+            "x" not in cleaned
+            or "y" not in cleaned
+            or isinstance(cleaned.get("x"), (list, tuple))
+            or isinstance(cleaned.get("y"), (list, tuple))
+        ):
+            cleaned["x"] = point[0]
+            cleaned["y"] = point[1]
+        else:
+            cleaned.setdefault("x", point[0])
+            cleaned.setdefault("y", point[1])
 
     for axis_key, axis_size in (("x", display_width), ("y", display_height)):
         if axis_key not in cleaned:

@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agent.events import SessionEventBroker
 from app.schemas.events import AgentEvent
+from app.storage.sqlite import SQLiteStore
 
 
 class AgentEventSchemaTests(unittest.TestCase):
@@ -67,6 +69,21 @@ class SessionEventBrokerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(event["sequence"], 1)
         self.assertEqual(await broker.history("abc123"), [event])
+
+    async def test_history_falls_back_to_sqlite_persistence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SQLiteStore(str(Path(tmp) / "agent.sqlite"))
+            store.initialize()
+            broker = SessionEventBroker()
+            broker.configure_persistence(store)
+            await broker.publish("abc123", "agent_message", text="hello")
+
+            fresh_broker = SessionEventBroker()
+            fresh_broker.configure_persistence(store)
+            history = await fresh_broker.history("abc123")
+
+        self.assertEqual(history[0]["type"], "agent_message")
+        self.assertEqual(history[0]["text"], "hello")
 
 
 if __name__ == "__main__":

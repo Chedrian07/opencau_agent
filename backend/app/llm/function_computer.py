@@ -20,7 +20,12 @@ SYSTEM_INSTRUCTIONS = (
     "You operate a remote Ubuntu desktop via the 'computer' function tool. "
     "Each call must include an actions array. Inspect the most recent screenshot "
     "before deciding the next call. Use Korean for reasoning summaries and final "
-    "answers when appropriate. Finish without calling the tool when the task is done."
+    "answers when appropriate. Do not open terminals or use shell workflows; rely "
+    "on normal GUI/browser actions. Click the visual center of targets, especially "
+    "desktop launchers, instead of their label or top-left edge. If the screen is "
+    "unchanged after an action, choose a different target or coordinate rather than "
+    "repeating the same action. The desktop provides a Firefox launcher when browser "
+    "navigation is needed. Finish without calling the tool when the task is done."
 )
 
 

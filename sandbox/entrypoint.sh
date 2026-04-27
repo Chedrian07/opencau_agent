@@ -10,8 +10,21 @@ export DISPLAY="${DISPLAY_VALUE}"
 export HOME=/home/agent
 export XDG_RUNTIME_DIR=/run/user/1200
 
-mkdir -p /tmp/.X11-unix /run/user/1200 /home/agent/.cache /home/agent/.config /home/agent/Downloads
+mkdir -p /tmp/.X11-unix /run/user/1200 /home/agent/.cache /home/agent/.config /home/agent/Desktop /home/agent/Downloads
 chmod 1777 /tmp/.X11-unix
+
+cat >/home/agent/Desktop/firefox.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Firefox
+Comment=Open Firefox web browser
+Exec=firefox
+Icon=firefox
+Terminal=false
+Categories=Network;WebBrowser;
+EOF
+chmod 0755 /home/agent/Desktop/firefox.desktop
+chown -R agent:agent /home/agent
 
 rm -f /tmp/.X1-lock /tmp/opencau-ready
 

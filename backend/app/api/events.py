@@ -5,10 +5,13 @@ from fastapi.responses import FileResponse
 
 from app.agent.events import event_broker
 from app.agent.runtime import agent_runtime
+from app.api.deps import get_session_manager, get_sqlite_store
 from app.config import Settings, get_settings
 from app.sandbox.client import SandboxClient
 from app.schemas.messages import UserMessageRequest, UserMessageResponse
 from app.schemas.sessions import SESSION_ID_PATTERN
+from app.storage.session_store import RedisSessionManager
+from app.storage.sqlite import SQLiteStore
 from app.storage.screenshot_store import ScreenshotStore
 
 router = APIRouter(tags=["events"])
@@ -30,12 +33,18 @@ async def create_message(
     request: UserMessageRequest,
     sandbox_client: SandboxClient = Depends(get_sandbox_client),
     screenshot_store: ScreenshotStore = Depends(get_screenshot_store),
+    session_manager: RedisSessionManager = Depends(get_session_manager),
+    sqlite_store: SQLiteStore = Depends(get_sqlite_store),
 ) -> UserMessageResponse:
+    sqlite_store.record_message(session_id=session_id, role="user", text=request.text)
+    await session_manager.touch(session_id)
     accepted = await agent_runtime.submit(
         session_id=session_id,
         text=request.text,
         sandbox_client=sandbox_client,
         screenshot_store=screenshot_store,
+        sqlite_store=sqlite_store,
+        session_manager=session_manager,
     )
     return UserMessageResponse(session_id=session_id, accepted=accepted)
 
@@ -61,6 +70,21 @@ async def get_screenshot(
     if not path.is_file():
         raise HTTPException(status_code=404, detail={"code": "SCREENSHOT_NOT_FOUND"})
     return FileResponse(path, media_type="image/png")
+
+
+@router.get("/sessions/{session_id}/screenshots/{shot_id}.webp")
+async def get_screenshot_thumb(
+    session_id: SessionId,
+    shot_id: Annotated[str, Path(pattern=r"^[a-f0-9]{32}$")],
+    screenshot_store: ScreenshotStore = Depends(get_screenshot_store),
+) -> FileResponse:
+    path = screenshot_store.thumb_path_for(session_id, shot_id)
+    if not path.is_file():
+        path = screenshot_store.path_for(session_id, shot_id)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail={"code": "SCREENSHOT_NOT_FOUND"})
+        return FileResponse(path, media_type="image/png")
+    return FileResponse(path, media_type="image/webp")
 
 
 @ws_router.websocket("/ws/sessions/{session_id}/events")

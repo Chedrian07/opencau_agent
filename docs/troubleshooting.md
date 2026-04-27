@@ -38,3 +38,23 @@ docker compose up -d --force-recreate sandbox-template
 ## Backend ignores `.env` changes
 
 `docker-compose.yml` enumerates the env keys it forwards into the backend container. Newly-added `LLM_*` and agent settings need an entry there too. Restart with `docker compose up -d --force-recreate backend` after editing `docker-compose.yml`.
+
+## Mock E2E fails before events appear
+
+`make e2e-mock` expects the compose stack to be running and healthy:
+
+```bash
+docker compose up --build
+```
+
+Use `LLM_PROFILE=mock` for this smoke path. The script creates a real sandbox session, sends one message, waits for the terminal `task_status`, verifies a PNG screenshot URL, and deletes the session.
+
+## Real profile E2E task
+
+With a configured non-mock profile, use:
+
+```bash
+E2E_PROMPT="Open Firefox and navigate to https://example.com." make e2e-task
+```
+
+This uses the same REST API path as the frontend and deletes the session at the end. It fails if the agent reaches `error`/`interrupted` instead of `done`.

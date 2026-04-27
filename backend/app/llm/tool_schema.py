@@ -21,11 +21,12 @@ def function_tool_schema(*, display_width: int, display_height: int) -> dict[str
     return {
         "type": "function",
         "name": "computer",
-        "description": (
-            "Control the Ubuntu desktop using mouse, keyboard, scrolling, waiting, and screenshots."
-            f" Display is {display_width}x{display_height}. Coordinates use 0,0 at the top-left."
-            " Always batch related actions in a single call. Take a screenshot before deciding the next step."
-        ),
+            "description": (
+                "Control the Ubuntu desktop using mouse, keyboard, scrolling, waiting, and screenshots."
+                f" Display is {display_width}x{display_height}. Coordinates use 0,0 at the top-left."
+                " Click the center of visible targets, not their label or top-left edge."
+                " Always batch related actions in a single call. Take a screenshot before deciding the next step."
+            ),
         "parameters": {
             "type": "object",
             "properties": {

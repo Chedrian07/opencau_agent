@@ -66,6 +66,14 @@ def _xdotool_button(button: str | None) -> str:
     return mapping[button]
 
 
+def _move_mouse(x: int, y: int) -> None:
+    # xdotool --sync can hang under Xvfb/noVNC when the pointer is already
+    # constrained by a transient menu or window-manager grab. A plain move is
+    # enough for our GUI action model, and avoids burning the whole action
+    # timeout before the click can execute.
+    _run([XDOTOOL, "mousemove", str(x), str(y)], timeout=3)
+
+
 def do_screenshot(_: dict[str, Any]) -> dict[str, Any]:
     out_path = "/tmp/opencau-action.png"
     _run([SCROT, "--overwrite", out_path], timeout=10)
@@ -75,25 +83,28 @@ def do_screenshot(_: dict[str, Any]) -> dict[str, Any]:
 def do_click(action: dict[str, Any]) -> dict[str, Any]:
     x, y = _coords(action)
     button = _xdotool_button(action.get("button"))
-    _run([XDOTOOL, "mousemove", "--sync", str(x), str(y), "click", button])
+    _move_mouse(x, y)
+    _run([XDOTOOL, "click", button])
     return {"output": f"click {button} at {x},{y}"}
 
 
 def do_double_click(action: dict[str, Any]) -> dict[str, Any]:
     x, y = _coords(action)
-    _run([XDOTOOL, "mousemove", "--sync", str(x), str(y), "click", "--repeat", "2", "--delay", "60", "1"])
+    _move_mouse(x, y)
+    _run([XDOTOOL, "click", "--repeat", "2", "--delay", "60", "1"])
     return {"output": f"double_click at {x},{y}"}
 
 
 def do_right_click(action: dict[str, Any]) -> dict[str, Any]:
     x, y = _coords(action)
-    _run([XDOTOOL, "mousemove", "--sync", str(x), str(y), "click", "3"])
+    _move_mouse(x, y)
+    _run([XDOTOOL, "click", "3"])
     return {"output": f"right_click at {x},{y}"}
 
 
 def do_move(action: dict[str, Any]) -> dict[str, Any]:
     x, y = _coords(action)
-    _run([XDOTOOL, "mousemove", "--sync", str(x), str(y)])
+    _move_mouse(x, y)
     return {"output": f"move to {x},{y}"}
 
 
@@ -109,11 +120,11 @@ def do_drag(action: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"drag point ({px},{py}) out of display bounds")
         points.append((px, py))
     start_x, start_y = points[0]
-    _run([XDOTOOL, "mousemove", "--sync", str(start_x), str(start_y)])
+    _move_mouse(start_x, start_y)
     _run([XDOTOOL, "mousedown", "1"])
     try:
         for px, py in points[1:]:
-            _run([XDOTOOL, "mousemove", "--sync", str(px), str(py)])
+            _move_mouse(px, py)
             time.sleep(0.02)
     finally:
         _run([XDOTOOL, "mouseup", "1"])
@@ -168,7 +179,7 @@ def do_keypress(action: dict[str, Any]) -> dict[str, Any]:
 
 def do_scroll(action: dict[str, Any]) -> dict[str, Any]:
     x, y = _coords(action)
-    _run([XDOTOOL, "mousemove", "--sync", str(x), str(y)])
+    _move_mouse(x, y)
     scroll_x = int(action.get("scroll_x") or 0)
     scroll_y = int(action.get("scroll_y") or 0)
     if scroll_y == 0 and scroll_x == 0:

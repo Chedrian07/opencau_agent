@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     sqlite_path: str = "/data/opencau-agent.sqlite"
     screenshot_dir: str = "/data/screenshots"
+    screenshot_retention_hours: int = Field(default=24, ge=1, le=720)
 
     llm_profile: LLMProfile = "mock"
     llm_base_url: str = "https://api.openai.com/v1"
@@ -70,6 +71,8 @@ class Settings(BaseSettings):
     action_timeout_sec: int = Field(default=10, ge=1)
     screenshot_detail: ScreenshotDetail = "original"
     repeated_action_threshold: int = Field(default=3, ge=2, le=10)
+    sandbox_idle_timeout_sec: int = Field(default=1800, ge=60, le=86_400)
+    cleanup_interval_sec: int = Field(default=60, ge=5, le=3600)
 
     @field_validator("llm_profile", mode="before")
     @classmethod

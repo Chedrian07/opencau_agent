@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.config import get_settings
 
@@ -6,8 +6,9 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-async def health() -> dict[str, object]:
+async def health(request: Request) -> dict[str, object]:
     settings = get_settings()
+    session_manager = getattr(request.app.state, "session_manager", None)
     return {
         "status": "ok",
         "display": {
@@ -24,5 +25,10 @@ async def health() -> dict[str, object]:
         "agent": {
             "max_steps": settings.max_agent_steps,
             "timeout_sec": settings.agent_timeout_sec,
+        },
+        "storage": {
+            "session_backend": getattr(session_manager, "backend_name", "uninitialized"),
+            "sqlite_path": settings.sqlite_path,
+            "screenshot_retention_hours": settings.screenshot_retention_hours,
         },
     }

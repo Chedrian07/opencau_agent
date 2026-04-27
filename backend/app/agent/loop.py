@@ -12,6 +12,7 @@ from app.llm.base import ActionResult, AgentResponse, LLMAdapter, Screenshot
 from app.sandbox.action_executor import ActionExecutor
 from app.sandbox.client import SandboxClient
 from app.schemas.actions import Action, actions_match
+from app.storage.sqlite import SQLiteStore
 from app.storage.screenshot_store import ScreenshotMetadata, ScreenshotStore
 
 
@@ -23,10 +24,18 @@ class AgentLoopDeps:
     action_executor: ActionExecutor
     adapter_factory: Callable[[], LLMAdapter]
     is_interrupted: Callable[[], bool]
+    sqlite_store: SQLiteStore | None = None
 
 
 def _action_dump(action: Action) -> dict[str, Any]:
     return action.model_dump(exclude_none=True)
+
+
+def _exception_message(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return message
+    return exc.__class__.__name__
 
 
 async def _capture_screenshot(deps: AgentLoopDeps, session_id: str) -> tuple[Screenshot | None, ScreenshotMetadata | None]:
@@ -36,6 +45,8 @@ async def _capture_screenshot(deps: AgentLoopDeps, session_id: str) -> tuple[Scr
         action_image = None
     image = action_image or await deps.sandbox_client.capture_screenshot(session_id)
     metadata = deps.screenshot_store.save_png(session_id, image)
+    if deps.sqlite_store is not None:
+        deps.sqlite_store.record_screenshot(metadata)
     screenshot = Screenshot.from_png_bytes(
         image,
         width=deps.settings.display_width,
@@ -65,6 +76,9 @@ async def run_agent_loop(*, session_id: str, user_message: str, deps: AgentLoopD
 
     try:
         screenshot, metadata = await _capture_screenshot(deps, session_id)
+    except asyncio.CancelledError:
+        await adapter.aclose()
+        raise
     except Exception as exc:
         await event_broker.publish(
             session_id,
@@ -96,12 +110,15 @@ async def run_agent_loop(*, session_id: str, user_message: str, deps: AgentLoopD
             user_message=user_message,
             screenshot=screenshot,
         )
+    except asyncio.CancelledError:
+        await adapter.aclose()
+        raise
     except Exception as exc:
         await event_broker.publish(
             session_id,
             "error",
             code="LLM_RESPONSE_ERROR",
-            message=str(exc),
+            message=_exception_message(exc),
         )
         await event_broker.publish(
             session_id,
@@ -277,7 +294,7 @@ async def run_agent_loop(*, session_id: str, user_message: str, deps: AgentLoopD
                     session_id,
                     "error",
                     code="LLM_RESPONSE_ERROR",
-                    message=str(exc),
+                    message=_exception_message(exc),
                 )
                 await event_broker.publish(
                     session_id,

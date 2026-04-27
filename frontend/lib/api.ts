@@ -22,6 +22,11 @@ export type HealthInfo = {
     max_steps: number;
     timeout_sec: number;
   };
+  storage?: {
+    session_backend: string;
+    sqlite_path: string;
+    screenshot_retention_hours: number;
+  };
 };
 
 export type PreflightCheck = {
@@ -156,6 +161,10 @@ export async function createSession(): Promise<SessionInfo> {
   );
 }
 
+export async function listSessions(): Promise<SessionInfo[]> {
+  return parseJson<SessionInfo[]>(await fetch(`${backendUrl}/api/sessions`, { cache: "no-store" }));
+}
+
 export async function sendMessage(sessionId: string, text: string): Promise<{ accepted: boolean; session_id: string }> {
   return parseJson<{ accepted: boolean; session_id: string }>(
     await fetch(`${backendUrl}/api/sessions/${sessionId}/messages`, {
@@ -202,6 +211,15 @@ export function eventsWsUrl(sessionId: string): string {
   url.pathname = `/ws/sessions/${sessionId}/events`;
   url.search = "";
   return url.toString();
+}
+
+export async function getSessionEvents(sessionId: string): Promise<AgentEvent[]> {
+  const rawEvents = await parseJson<unknown[]>(
+    await fetch(`${backendUrl}/api/sessions/${sessionId}/events`, { cache: "no-store" }),
+  );
+  return rawEvents
+    .map((event) => parseAgentEvent(event))
+    .filter((event): event is AgentEvent => event != null);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

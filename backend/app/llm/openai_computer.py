@@ -20,7 +20,9 @@ SYSTEM_INSTRUCTIONS = (
     "Always inspect the latest screenshot before acting. Plan minimal actions, "
     "describe high-level intent in short Korean reasoning summaries, and finish "
     "with a final agent_message when the task is complete. Never request shell "
-    "or terminal commands; rely on GUI actions only."
+    "or terminal commands; rely on GUI actions only. Click the visual center of "
+    "targets, especially desktop launchers, and avoid repeating unchanged actions "
+    "at the same coordinates."
 )
 
 

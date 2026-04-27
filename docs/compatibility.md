@@ -2,13 +2,13 @@
 
 This matrix records what the Phase 1 + Phase 3 adapter family supports today.
 
-| Backend | `LLM_PROFILE` | Native computer tool | Function tool | Vision | Stateful | Smoke status |
+| Backend | `LLM_PROFILE` | Native computer tool | Function tool | Vision | Stateful | Verification status |
 |---|---|---:|---:|---:|---:|---|
-| OpenAI Responses | `openai-native` | ✓ | ✓ | ✓ | ✓ (server) | wired, requires `LLM_API_KEY` |
-| LM Studio | `lmstudio-responses` | ✗ | ✓ | model dependent | ✓ (server) | wired, function adapter |
-| vLLM | `vllm-responses` | ✗ | ✓ | model dependent | ✓ (server) | wired, function adapter |
-| Ollama | `ollama-stateless` | ✗ | ✓ | model dependent | manual history | wired, stateless adapter |
-| Mock | `mock` | n/a | n/a | n/a | n/a | always green; used for E2E without keys |
+| OpenAI Responses | `openai-native` | ✓ | ✓ | ✓ | ✓ (server) | Not yet verified; requires `LLM_API_KEY` |
+| LM Studio | `lmstudio-responses` | ✗ | ✓ | model dependent | ✓ (server) | Experimental; preflight reachable, GUI E2E not yet verified |
+| vLLM | `vllm-responses` | ✗ | ✓ | model dependent | ✓ (server) | Not yet verified |
+| Ollama | `ollama-stateless` | ✗ | ✓ | model dependent | manual history | Not yet verified |
+| Mock | `mock` | n/a | n/a | n/a | n/a | Supported; mock E2E passes without keys |
 
 ## Required env per profile
 
@@ -62,6 +62,11 @@ LLM_PROFILE=mock
 ```
 
 The mock adapter performs `screenshot` then sends a final `agent_message`. Use it to validate the event/sandbox pipeline without consuming credits.
+
+## Current smoke evidence
+
+- Mock E2E: `make e2e-mock` passes against the full API/sandbox/event/storage path.
+- LM Studio Qwen: `/api/preflight` reaches the configured `/v1/responses` endpoint, but the real GUI task is not marked supported yet. The latest `example.com` E2E attempt hit an upstream 524 timeout before the first tool call.
 
 ## Profile aliases
 

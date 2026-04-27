@@ -35,6 +35,21 @@ class SandboxClient:
             vnc_url=f"/vnc/sessions/{data['session_id']}/" if data["status"] != "missing" else None,
         )
 
+    async def list_sessions(self) -> list[SessionInfo]:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{self._base_url}/sessions")
+            response.raise_for_status()
+            data = response.json()
+        return [
+            SessionInfo(
+                session_id=item["session_id"],
+                status=item["status"],
+                container_id=item.get("container_id"),
+                vnc_url=f"/vnc/sessions/{item['session_id']}/" if item["status"] != "missing" else None,
+            )
+            for item in data
+        ]
+
     async def delete_session(self, session_id: str) -> None:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.delete(f"{self._base_url}/sessions/{session_id}")

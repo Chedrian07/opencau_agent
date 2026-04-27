@@ -2,7 +2,7 @@
 
 Local Manus-style desktop agent. The frontend chats with an LLM backend that drives an isolated Ubuntu desktop through GUI actions (`xdotool`, `xclip`, `scrot`) inside Docker. The user sees the live desktop via embedded noVNC and a streaming event log.
 
-Current state: **Phase 0 + Phase 1 + Phase 2 + Phase 3 wired**. The agent loop is real (LLM → `computer` tool → action executor → screenshot → next turn) and supports OpenAI native `computer` tool, generic function-tool backends (LM Studio, vLLM), and a stateless variant (Ollama). A `mock` profile lets you exercise the full pipeline without a key.
+Current state: **Phase 0 through Phase 5 wired**. The agent loop is real (LLM → `computer` tool → action executor → screenshot → next turn), supports OpenAI native `computer`, generic function-tool backends (LM Studio, vLLM), and a stateless variant (Ollama). Redis tracks ephemeral session state, SQLite stores conversation/event/screenshot metadata, and a `mock` profile lets you exercise the full pipeline without a key.
 
 ## Run
 
@@ -33,6 +33,7 @@ Open <http://localhost:3000>.
 - `GET /api/health` — backend + display + LLM profile snapshot.
 - `GET /api/preflight` — adapter readiness checks (tool/state mode mismatch, API key, reachability).
 - `POST /api/sessions` — create a sandbox session.
+- `GET /api/sessions` — list active sessions tracked by Redis.
 - `POST /api/sessions/{id}/messages` — send a user instruction; streams events over WebSocket.
 - `POST /api/sessions/{id}/interrupt` — abort the running agent loop.
 - `GET /ws/sessions/{id}/events` — WebSocket event stream (`agent_reasoning_summary`, `tool_call`, `action_executed`, `screenshot`, `task_status`, `warning`, `error`).
@@ -42,8 +43,10 @@ Open <http://localhost:3000>.
 
 ```bash
 make lint   # python -m compileall on backend + sandbox-controller
-make test   # 64 backend + 5 sandbox-controller unit tests
+make test   # backend + sandbox-controller unit tests
 make smoke  # docker compose config validation
+make e2e-mock  # requires docker compose stack running with LLM_PROFILE=mock
+make e2e-task  # requires a real configured LLM profile; E2E_PROMPT can override the task
 ```
 
 ## Security notes

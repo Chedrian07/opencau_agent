@@ -102,6 +102,12 @@ class NormalizeActionTests(unittest.TestCase):
         self.assertEqual(action.x, 42)
         self.assertEqual(action.y, 99)
 
+    def test_x_point_list_without_y_yields_x_y_for_any_point_action(self) -> None:
+        action = normalize_action({"type": "double_click", "x": [37, 282]})
+
+        self.assertEqual(action.x, 37)
+        self.assertEqual(action.y, 282)
+
     def test_point_dict_field_yields_x_y(self) -> None:
         action = normalize_action({"type": "click", "position": {"x": 10, "y": 20}})
 

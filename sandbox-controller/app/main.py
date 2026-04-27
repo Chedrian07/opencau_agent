@@ -16,6 +16,7 @@ from app.docker_sandbox import (
     delete_sandbox,
     execute_action,
     inspect_sandbox,
+    list_sandboxes,
     run_allowed_command,
     sandbox_host,
 )
@@ -76,6 +77,11 @@ async def create_session(request: CreateSessionRequest) -> SessionResponse:
         return create_sandbox(settings, request.session_id)
     except SandboxStartupError as exc:
         raise HTTPException(status_code=504, detail={"code": "SANDBOX_STARTUP_TIMEOUT"}) from exc
+
+
+@app.get("/sessions", response_model=list[SessionResponse])
+async def list_sessions() -> list[SessionResponse]:
+    return list_sandboxes()
 
 
 @app.get("/sessions/{session_id}", response_model=SessionResponse)

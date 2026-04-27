@@ -65,6 +65,10 @@ def _find_container(client: docker.DockerClient, session_id: str) -> Container |
         return None
 
 
+def _sandbox_containers(client: docker.DockerClient) -> list[Container]:
+    return client.containers.list(all=True, filters={"label": [f"{LABEL_ROLE}={SANDBOX_ROLE}"]})
+
+
 def _wait_until_ready(container: Container, timeout_sec: int) -> bool:
     deadline = time.monotonic() + timeout_sec
     healthcheck = command_for(CommandRequest(operation="healthcheck"))
@@ -123,6 +127,16 @@ def create_sandbox(settings: Settings, session_id: str) -> SessionResponse:
 def inspect_sandbox(session_id: str) -> SessionResponse:
     with docker_client() as client:
         return _session_response(session_id, _find_container(client, session_id))
+
+
+def list_sandboxes() -> list[SessionResponse]:
+    with docker_client() as client:
+        responses: list[SessionResponse] = []
+        for container in _sandbox_containers(client):
+            session_id = container.labels.get(LABEL_SESSION)
+            if session_id:
+                responses.append(_session_response(session_id, container))
+        return sorted(responses, key=lambda item: item.session_id)
 
 
 def delete_sandbox(session_id: str) -> None:
