@@ -15,6 +15,8 @@ from app.schemas.actions import Action, actions_match
 from app.storage.sqlite import SQLiteStore
 from app.storage.screenshot_store import ScreenshotMetadata, ScreenshotStore
 
+NON_VISUAL_ACTION_TYPES = frozenset({"screenshot", "wait", "cursor_position"})
+
 
 @dataclass
 class AgentLoopDeps:
@@ -36,6 +38,10 @@ def _exception_message(exc: Exception) -> str:
     if message:
         return message
     return exc.__class__.__name__
+
+
+def _has_visual_action(actions: list[Action]) -> bool:
+    return any(action.type not in NON_VISUAL_ACTION_TYPES for action in actions)
 
 
 async def _capture_screenshot(deps: AgentLoopDeps, session_id: str) -> tuple[Screenshot | None, ScreenshotMetadata | None]:
@@ -134,6 +140,8 @@ async def run_agent_loop(*, session_id: str, user_message: str, deps: AgentLoopD
 
     last_action_signature: tuple[Action, ...] | None = None
     repeat_count = 0
+    last_screenshot_sha = metadata.sha256 if metadata is not None else None
+    unchanged_screen_count = 0
 
     try:
         for step in range(1, settings.max_agent_steps + 1):
@@ -282,6 +290,31 @@ async def run_agent_loop(*, session_id: str, user_message: str, deps: AgentLoopD
                     thumb_url=metadata.thumb_url,
                     sha256=metadata.sha256,
                 )
+                if _has_visual_action(response.actions) and last_screenshot_sha == metadata.sha256:
+                    unchanged_screen_count += 1
+                else:
+                    unchanged_screen_count = 0
+                last_screenshot_sha = metadata.sha256
+
+                if unchanged_screen_count >= settings.repeated_action_threshold:
+                    await event_broker.publish(
+                        session_id,
+                        "warning",
+                        code="SCREEN_UNCHANGED",
+                        message=(
+                            "Screen did not change after "
+                            f"{unchanged_screen_count} visual action steps; aborting loop"
+                        ),
+                    )
+                    await event_broker.publish(
+                        session_id,
+                        "task_status",
+                        label="Screen unchanged loop",
+                        state="error",
+                        step=step,
+                        max_steps=settings.max_agent_steps,
+                    )
+                    return
 
             try:
                 response = await adapter.continue_after_actions(

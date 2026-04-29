@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.agent.events import event_broker
 from app.agent.loop import AgentLoopDeps, run_agent_loop
 from app.config import Settings
-from app.llm.base import ActionResult
+from app.llm.base import ActionResult, AdapterCapability, AgentResponse, Screenshot
 from app.llm.mock import MockComputerAdapter
 from app.sandbox.action_executor import ActionExecutor
 from app.schemas.actions import Action
@@ -63,6 +63,55 @@ class _FakeActionExecutor(ActionExecutor):
             duration_ms=5,
             output="ok",
         )
+
+
+class _UnchangedScreenAdapter:
+    """Adapter that keeps issuing different click actions against a static screen."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._x = 10
+        self.capability = AdapterCapability(
+            profile="mock",
+            tool_mode=settings.llm_tool_mode,
+            state_mode=settings.llm_state_mode,
+            supports_vision=False,
+            supports_tool_calls=True,
+            supports_native_computer=False,
+            model="unchanged-screen",
+            base_url=settings.llm_base_url,
+        )
+
+    async def aclose(self) -> None:
+        return None
+
+    def _action_response(self, reason: str) -> AgentResponse:
+        action = Action(type="click", x=self._x, y=10, button="left")
+        self._x += 1
+        return AgentResponse(
+            response_id=f"static-{self._x}",
+            actions=[action],
+            text=None,
+            reasoning_summary=reason,
+            stop_reason="actions",
+        )
+
+    async def create_initial_response(
+        self,
+        *,
+        session_id: str,  # noqa: ARG002
+        user_message: str,  # noqa: ARG002
+        screenshot: Screenshot | None,  # noqa: ARG002
+    ) -> AgentResponse:
+        return self._action_response("Trying a visible click.")
+
+    async def continue_after_actions(
+        self,
+        *,
+        previous: AgentResponse,  # noqa: ARG002
+        action_results: list[ActionResult],  # noqa: ARG002
+        screenshot: Screenshot,  # noqa: ARG002
+    ) -> AgentResponse:
+        return self._action_response("Trying a nearby click.")
 
 
 def _settings(screenshot_dir: str) -> Settings:
@@ -156,6 +205,54 @@ class RunAgentLoopMockTests(unittest.IsolatedAsyncioTestCase):
         for event in screenshot_events:
             self.assertIn(f"/api/sessions/{session_id}/screenshots/", event["url"])
             self.assertEqual(len(event["sha256"]), 64)
+
+    async def test_aborts_when_visual_actions_do_not_change_screen(self) -> None:
+        session_id = "test-static-screen-session"
+        await event_broker.clear(session_id)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = Settings(
+                _env_file=None,
+                llm_profile="mock",
+                sandbox_controller_url="http://sandbox-controller:8100",
+                screenshot_dir=tmp,
+                max_agent_steps=4,
+                agent_timeout_sec=30,
+                action_timeout_sec=5,
+                repeated_action_threshold=2,
+            )
+            sandbox = _FakeSandboxClient(ONE_PIXEL_PNG)
+            executor = _FakeActionExecutor(settings)
+            store = ScreenshotStore(tmp)
+
+            deps = AgentLoopDeps(
+                settings=settings,
+                sandbox_client=sandbox,  # type: ignore[arg-type]
+                screenshot_store=store,
+                action_executor=executor,
+                adapter_factory=lambda: _UnchangedScreenAdapter(settings),
+                is_interrupted=lambda: False,
+            )
+
+            await run_agent_loop(
+                session_id=session_id,
+                user_message="Click until something opens",
+                deps=deps,
+            )
+
+            history = await event_broker.history(session_id)
+
+        warnings = [event for event in history if event["type"] == "warning"]
+        self.assertTrue(
+            any(event["code"] == "SCREEN_UNCHANGED" for event in warnings),
+            msg=f"Expected SCREEN_UNCHANGED warning in {warnings!r}",
+        )
+        task_status_events = [
+            event for event in history if event["type"] == "task_status"
+        ]
+        self.assertEqual(task_status_events[-1]["state"], "error")
+        self.assertEqual(task_status_events[-1]["label"], "Screen unchanged loop")
+        self.assertEqual(len(executor.calls), 2)
 
 
 if __name__ == "__main__":

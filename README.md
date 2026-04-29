@@ -16,6 +16,14 @@ Open <http://localhost:3000>.
 
 `LLM_PROFILE=mock` (the default in `.env.example`) is a no-key smoke profile that captures a screenshot and replies with a final message; use it for first-run sanity checks.
 
+For a clean local demo without editing `.env`, run:
+
+```bash
+make demo
+```
+
+Then open <http://localhost:3000>, send a task from the welcome screen, and watch the chat, live CUA desktop, reasoning summary, latest screenshot, and action timeline update together.
+
 ## Profiles
 
 | Profile | Notes |
@@ -45,6 +53,7 @@ Open <http://localhost:3000>.
 make lint   # python -m compileall on backend + sandbox-controller
 make test   # backend + sandbox-controller unit tests
 make smoke  # docker compose config validation
+make demo-check # starts the mock compose stack and runs the no-key E2E check
 make e2e-mock  # requires docker compose stack running with LLM_PROFILE=mock
 make e2e-task  # requires a real configured LLM profile; E2E_PROMPT can override the task
 ```

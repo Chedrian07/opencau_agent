@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   CircleAlert,
   Cpu,
+  ExternalLink,
+  History,
   MessageSquare,
   Monitor,
   MousePointerClick,
@@ -16,6 +18,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Settings,
   Square,
   Trash2,
   Wifi,
@@ -127,6 +130,32 @@ function asNumber(value: unknown): number | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function clampPercent(value: number, max: number): number {
+  if (max <= 0) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, (value / max) * 100));
+}
+
+function actionPoint(action: Record<string, unknown>): { x: number; y: number } | null {
+  const x = asNumber(action.x);
+  const y = asNumber(action.y);
+  if (x != null && y != null) {
+    return { x, y };
+  }
+  const path = Array.isArray(action.path) ? action.path : null;
+  if (!path || path.length === 0) {
+    return null;
+  }
+  const last = path[path.length - 1];
+  if (!last || typeof last !== "object") {
+    return null;
+  }
+  const px = asNumber((last as Record<string, unknown>).x);
+  const py = asNumber((last as Record<string, unknown>).y);
+  return px != null && py != null ? { x: px, y: py } : null;
 }
 
 function describeAction(action: Record<string, unknown>): string | null {
@@ -405,6 +434,7 @@ export default function Home() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [preflight, setPreflight] = useState<PreflightReport | null>(null);
   const [session, setSession] = useState<SessionInfo | null>(null);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [state, setState] = useState<RequestState>("idle");
   const [socketState, setSocketState] = useState<SocketState>("idle");
   const [bootNotice, setBootNotice] = useState<string | null>(null);
@@ -412,6 +442,7 @@ export default function Home() {
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const chatRef = useRef<HTMLElement | null>(null);
   const activityRef = useRef<HTMLDivElement | null>(null);
 
@@ -431,6 +462,14 @@ export default function Home() {
   const latestScreenshot = useMemo(() => {
     return [...events].reverse().find((event) => event.type === "screenshot") ?? null;
   }, [events]);
+
+  const latestAction = useMemo(() => {
+    return [...events].reverse().find((event) => event.type === "action_executed") ?? null;
+  }, [events]);
+
+  const latestActionPoint = useMemo(() => {
+    return latestAction?.type === "action_executed" ? actionPoint(latestAction.action) : null;
+  }, [latestAction]);
 
   const interruptEnabled = useMemo(() => {
     if (!session || !latestTask) {
@@ -457,7 +496,9 @@ export default function Home() {
   const screenshotCount = events.filter((event) => event.type === "screenshot").length;
 
   const chatItems = useMemo<ChatItem[]>(() => {
-    const userItems: ChatItem[] = localMessages.map((message) => ({ kind: "user", item: message }));
+    const userItems: ChatItem[] = localMessages
+      .filter((message) => message.sessionId === sessionId)
+      .map((message) => ({ kind: "user", item: message }));
     const eventItems: ChatItem[] = events
       .filter((event) => CHAT_EVENT_TYPES.has(event.type))
       .map((event) => ({ kind: "event", item: event }));
@@ -475,6 +516,27 @@ export default function Home() {
     const failing = preflight.checks.filter((check) => check.status !== "ok");
     return failing.length > 0 ? failing : null;
   }, [preflight]);
+
+  const runtimeRows = useMemo<Array<{ label: string; value: string }>>(() => {
+    const display = health?.display
+      ? `${health.display.width}×${health.display.height}×${health.display.depth}`
+      : null;
+    return [
+      { label: "Profile", value: health?.llm?.profile ?? preflight?.profile ?? "-" },
+      { label: "Model", value: health?.llm?.model ?? preflight?.model ?? "-" },
+      { label: "Tool mode", value: health?.llm?.tool_mode ?? preflight?.tool_mode ?? "-" },
+      { label: "State mode", value: health?.llm?.state_mode ?? preflight?.state_mode ?? "-" },
+      { label: "Base URL", value: preflight?.base_url ?? "-" },
+      { label: "Display", value: display ?? "-" },
+      { label: "Max steps", value: health?.agent?.max_steps != null ? String(health.agent.max_steps) : "-" },
+      { label: "Timeout", value: health?.agent?.timeout_sec != null ? `${health.agent.timeout_sec}s` : "-" },
+      { label: "Session store", value: health?.storage?.session_backend ?? "-" },
+      {
+        label: "Screenshot retention",
+        value: health?.storage?.screenshot_retention_hours != null ? `${health.storage.screenshot_retention_hours}h` : "-",
+      },
+    ];
+  }, [health, preflight]);
 
   async function refreshHealth() {
     setError(null);
@@ -496,10 +558,16 @@ export default function Home() {
     }
   }
 
+  async function refreshSessions(): Promise<SessionInfo[]> {
+    const nextSessions = await listSessions();
+    setSessions(nextSessions);
+    return nextSessions;
+  }
+
   async function restoreActiveSession() {
     try {
-      const sessions = await listSessions();
-      const runningSession = sessions.find((candidate) => candidate.status === "running") ?? null;
+      const nextSessions = await refreshSessions();
+      const runningSession = nextSessions.find((candidate) => candidate.status === "running") ?? null;
       if (!runningSession) {
         return;
       }
@@ -512,6 +580,23 @@ export default function Home() {
     }
   }
 
+  async function handleSelectSession(nextSession: SessionInfo) {
+    if (nextSession.session_id === sessionId) {
+      return;
+    }
+    setState("loading");
+    setError(null);
+    try {
+      setSession(nextSession);
+      setBootNotice(`Loaded session ${truncate(nextSession.session_id, 12)}.`);
+      setEvents(await getSessionEvents(nextSession.session_id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Session load failed");
+    } finally {
+      setState("idle");
+    }
+  }
+
   async function handleCreateSession() {
     setState("loading");
     setError(null);
@@ -519,7 +604,9 @@ export default function Home() {
     setEvents([]);
     setLocalMessages([]);
     try {
-      setSession(await createSession());
+      const created = await createSession();
+      setSession(created);
+      setSessions((current) => [created, ...current.filter((candidate) => candidate.session_id !== created.session_id)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Session creation failed");
     } finally {
@@ -536,6 +623,7 @@ export default function Home() {
     try {
       await deleteSession(session.session_id);
       setSession(null);
+      setSessions((current) => current.filter((candidate) => candidate.session_id !== session.session_id));
       setEvents([]);
       setLocalMessages([]);
       setBootNotice(null);
@@ -576,9 +664,10 @@ export default function Home() {
       let activeSession = session;
       if (!activeSession) {
         setEvents([]);
-        setLocalMessages([]);
-        activeSession = await createSession();
-        setSession(activeSession);
+        const created = await createSession();
+        activeSession = created;
+        setSession(created);
+        setSessions((current) => [created, ...current.filter((candidate) => candidate.session_id !== created.session_id)]);
       }
       setLocalMessages((current) => [
         ...current,
@@ -678,7 +767,7 @@ export default function Home() {
           </div>
         </div>
 
-        <button type="button" className="newTaskButton" onClick={handleCreateSession} disabled={state === "loading" || Boolean(session)}>
+        <button type="button" className="newTaskButton" onClick={handleCreateSession} disabled={state === "loading"}>
           <Plus aria-hidden="true" size={18} />
           <span>New task</span>
         </button>
@@ -701,6 +790,33 @@ export default function Home() {
             <Activity aria-hidden="true" size={17} />
             Activity
           </span>
+        </nav>
+
+        <nav className="sessionList" aria-label="Recent sessions">
+          <div className="sectionTitle">
+            <History aria-hidden="true" size={14} />
+            <span>Recent</span>
+          </div>
+          {sessions.length === 0 ? (
+            <div className="sessionEmpty">No sessions yet</div>
+          ) : (
+            sessions.slice(0, 8).map((candidate) => (
+              <button
+                type="button"
+                key={candidate.session_id}
+                className={candidate.session_id === sessionId ? "sessionButton active" : "sessionButton"}
+                onClick={() => void handleSelectSession(candidate)}
+                disabled={state === "loading"}
+                title={candidate.session_id}
+              >
+                <Monitor aria-hidden="true" size={15} />
+                <span>
+                  <strong>{truncate(candidate.session_id, 12)}</strong>
+                  <em>{candidate.status}</em>
+                </span>
+              </button>
+            ))
+          )}
         </nav>
 
         <div className="navFooter">
@@ -734,6 +850,15 @@ export default function Home() {
             </div>
           </div>
           <div className="headerActions">
+            <button
+              type="button"
+              className={settingsOpen ? "iconButton active" : "iconButton"}
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-label="Runtime settings"
+              title="Runtime settings"
+            >
+              <Settings aria-hidden="true" size={18} />
+            </button>
             <button type="button" className="iconButton" onClick={refreshHealth} aria-label="Refresh health" title="Refresh health">
               <RefreshCw aria-hidden="true" size={18} />
             </button>
@@ -759,6 +884,28 @@ export default function Home() {
             </button>
           </div>
         </header>
+
+        {settingsOpen ? (
+          <section className="settingsPanel" aria-label="Runtime settings">
+            <div className="settingsGrid">
+              {runtimeRows.map((row) => (
+                <div key={row.label} className="settingsRow">
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+            {preflight ? (
+              <div className="preflightChecks" aria-label="Preflight checks">
+                {preflight.checks.map((check) => (
+                  <span key={check.name} className={`checkPill ${check.status}`}>
+                    {check.name}: {check.status}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {preflightIssues ? (
           <div className={`preflightBanner ${preflight?.overall ?? "warning"}`} role="status">
@@ -830,9 +977,9 @@ export default function Home() {
             type="button"
             className="composerPlus"
             onClick={handleCreateSession}
-            disabled={state === "loading" || Boolean(session)}
+            disabled={state === "loading"}
             aria-label="Create session"
-            title={session ? "Session already running" : "Create session"}
+            title="Create session"
           >
             <Plus aria-hidden="true" size={19} />
           </button>
@@ -872,6 +1019,48 @@ export default function Home() {
                 <Monitor aria-hidden="true" size={34} />
                 <span>No active desktop session</span>
               </div>
+            )}
+          </section>
+
+          <section className="screenshotPanel" aria-label="Latest screenshot">
+            <div className="panelTitle">
+              <Camera aria-hidden="true" size={16} />
+              <span>Latest screen</span>
+              {latestScreenshot && latestScreenshot.type === "screenshot" ? (
+                <a
+                  href={absoluteBackendUrl(latestScreenshot.url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="panelLink"
+                  aria-label="Open latest screenshot"
+                >
+                  <ExternalLink aria-hidden="true" size={13} />
+                </a>
+              ) : null}
+            </div>
+            {latestScreenshot && latestScreenshot.type === "screenshot" ? (
+              <>
+                <a className="shotViewport" href={absoluteBackendUrl(latestScreenshot.url)} target="_blank" rel="noopener noreferrer">
+                  <img src={absoluteBackendUrl(latestScreenshot.url)} alt="Latest sandbox screenshot" />
+                  {latestActionPoint ? (
+                    <span
+                      className="actionMarker"
+                      style={{
+                        left: `${clampPercent(latestActionPoint.x, health?.display.width ?? 1)}%`,
+                        top: `${clampPercent(latestActionPoint.y, health?.display.height ?? 1)}%`,
+                      }}
+                      title={`Last action at ${latestActionPoint.x}, ${latestActionPoint.y}`}
+                    />
+                  ) : null}
+                </a>
+                <div className="shotMeta">
+                  <span>{formatTime(latestScreenshot.ts)}</span>
+                  <span>{latestScreenshot.sha256.slice(0, 12)}</span>
+                  {latestAction?.type === "action_executed" ? <span>{actionName(latestAction.action)}</span> : null}
+                </div>
+              </>
+            ) : (
+              <div className="emptyShot">No screenshot yet</div>
             )}
           </section>
 

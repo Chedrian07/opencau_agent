@@ -58,3 +58,9 @@ E2E_PROMPT="Open Firefox and navigate to https://example.com." make e2e-task
 ```
 
 This uses the same REST API path as the frontend and deletes the session at the end. It fails if the agent reaches `error`/`interrupted` instead of `done`.
+
+## Agent stops with `SCREEN_UNCHANGED`
+
+The agent executed visual GUI actions, but the stored screenshot hash did not change for several consecutive steps. This usually means the model is clicking the wrong target, the desktop is blocked by a modal, or the selected local model is emitting malformed coordinates that normalize to safe but ineffective actions.
+
+Open the frontend activity panel, inspect the latest screenshot and action marker, then retry with a more concrete instruction. If this happens often for one model/profile, document it as an experimental compatibility result in `docs/compatibility.md`.

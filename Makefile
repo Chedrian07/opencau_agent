@@ -1,4 +1,4 @@
-.PHONY: lint test smoke e2e-mock e2e-task compose-up compose-down
+.PHONY: lint test smoke demo demo-check e2e-mock e2e-task compose-up compose-down
 
 lint:
 	python -m compileall backend/app sandbox-controller/app
@@ -9,6 +9,13 @@ test:
 
 smoke:
 	docker compose config >/dev/null
+
+demo:
+	LLM_PROFILE=mock docker compose up --build
+
+demo-check:
+	LLM_PROFILE=mock docker compose up --build -d
+	python scripts/e2e_mock.py
 
 e2e-mock:
 	python scripts/e2e_mock.py

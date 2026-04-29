@@ -1,5 +1,7 @@
 .DS_Store
 .env
+*.swp
+*.swo
 AGENTS.md
 CLAUDE.md
 FINAL_PROJECT_PLAN.md
