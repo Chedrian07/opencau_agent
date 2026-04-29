@@ -17,6 +17,11 @@ class CommandAllowlistTests(unittest.TestCase):
 
         self.assertEqual(command_for(request), ["/usr/local/bin/healthcheck.sh"])
 
+    def test_active_window_title_uses_fixed_xdotool_command(self) -> None:
+        request = CommandRequest(operation="active_window_title")
+
+        self.assertEqual(command_for(request), ["xdotool", "getactivewindow", "getwindowname"])
+
     def test_no_shell_entrypoint_is_allowlisted(self) -> None:
         flattened = " ".join(" ".join(command) for command in ALLOWED_COMMANDS.values())
 

@@ -6,6 +6,8 @@ from pydantic import ValidationError
 
 from app.schemas.actions import Action
 
+DUPLICATE_COMPACT_TYPES = frozenset({"click", "double_click", "right_click", "move", "type", "keypress"})
+
 
 def _coerce_scalar(value: Any) -> Any:
     """Map vendor-specific coordinate forms (UI-TARS box, Qwen point list,
@@ -143,6 +145,87 @@ def normalize_action(raw: dict[str, Any], *, display_width: int | None = None, d
     return Action(**cleaned)
 
 
+def _is_left_click(action: Action) -> bool:
+    return action.type == "click" and (action.button is None or action.button == "left")
+
+
+def _same_point(left: Action, right: Action) -> bool:
+    return left.x == right.x and left.y == right.y
+
+
+def _compact_duplicate_clicks(actions: list[Action]) -> list[Action]:
+    compacted: list[Action] = []
+    index = 0
+    while index < len(actions):
+        current = actions[index]
+        next_action = actions[index + 1] if index + 1 < len(actions) else None
+        if (
+            next_action is not None
+            and _is_left_click(current)
+            and _is_left_click(next_action)
+            and _same_point(current, next_action)
+        ):
+            compacted.append(Action(type="double_click", x=current.x, y=current.y))
+            index += 2
+            continue
+        if (
+            next_action is not None
+            and current.type in DUPLICATE_COMPACT_TYPES
+            and current.type == next_action.type
+            and current.model_dump(exclude_none=True) == next_action.model_dump(exclude_none=True)
+        ):
+            compacted.append(current)
+            index += 2
+            continue
+        compacted.append(current)
+        index += 1
+    return compacted
+
+
+def _normalize_panel_launcher_clicks(
+    actions: list[Action],
+    *,
+    display_width: int | None,
+    display_height: int | None,
+) -> list[Action]:
+    if not display_width or not display_height:
+        return actions
+    panel_top = max(0, display_height - 90)
+    center = display_width // 2
+    normalized: list[Action] = []
+    for action in actions:
+        if (
+            action.type == "double_click"
+            and action.x is not None
+            and action.y is not None
+            and panel_top <= action.y <= display_height - 1
+            and center - 250 <= action.x <= center + 250
+        ):
+            normalized.append(Action(type="click", x=action.x, y=action.y, button=action.button))
+        else:
+            normalized.append(action)
+    return normalized
+
+
+def _is_return_keypress(action: Action) -> bool:
+    return action.type == "keypress" and action.keys is not None and "Return" in action.keys
+
+
+def _append_return_after_url_type(actions: list[Action]) -> list[Action]:
+    normalized: list[Action] = []
+    for index, action in enumerate(actions):
+        normalized.append(action)
+        next_action = actions[index + 1] if index + 1 < len(actions) else None
+        if (
+            action.type == "type"
+            and isinstance(action.text, str)
+            and action.text.startswith(("http://", "https://"))
+            and not (next_action is not None and _is_return_keypress(next_action))
+        ):
+            normalized.append(Action(type="keypress", keys=["Return"]))
+    return normalized
+
+
 def normalize_actions(
     raws: list[dict[str, Any]],
     *,
@@ -157,4 +240,10 @@ def normalize_actions(
             )
         except ValidationError as exc:
             raise ValueError(f"invalid computer action {raw}: {exc}") from exc
-    return actions
+    compacted = _compact_duplicate_clicks(actions)
+    panel_normalized = _normalize_panel_launcher_clicks(
+        compacted,
+        display_width=display_width,
+        display_height=display_height,
+    )
+    return _append_return_after_url_type(panel_normalized)

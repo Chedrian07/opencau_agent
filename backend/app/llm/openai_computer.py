@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -12,18 +13,11 @@ from app.llm.base import (
     Screenshot,
 )
 from app.llm.normalize import normalize_actions
+from app.llm.prompts import screen_feedback_text, system_instructions
 from app.llm.tool_schema import computer_tool_schema
 
 
-SYSTEM_INSTRUCTIONS = (
-    "You operate a remote Ubuntu desktop sandbox via the computer tool. "
-    "Always inspect the latest screenshot before acting. Plan minimal actions, "
-    "describe high-level intent in short Korean reasoning summaries, and finish "
-    "with a final agent_message when the task is complete. Never request shell "
-    "or terminal commands; rely on GUI actions only. Click the visual center of "
-    "targets, especially desktop launchers, and avoid repeating unchanged actions "
-    "at the same coordinates."
-)
+SYSTEM_INSTRUCTIONS = "You operate a remote Ubuntu desktop sandbox via the computer tool."
 
 
 class OpenAIComputerAdapter:
@@ -63,7 +57,7 @@ class OpenAIComputerAdapter:
             content.append({"type": "input_image", "image_url": screenshot.data_url})
         body: dict[str, Any] = {
             "model": self._settings.llm_model,
-            "instructions": SYSTEM_INSTRUCTIONS,
+            "instructions": system_instructions(self._settings, native_computer=True),
             "tools": [
                 computer_tool_schema(
                     display_width=self._settings.display_width,
@@ -85,8 +79,14 @@ class OpenAIComputerAdapter:
         if previous.raw_call_id is None:
             raise RuntimeError("previous response has no computer_call id")
         success = all(result.status == "ok" for result in action_results)
+        feedback_text = screen_feedback_text(
+            previous=previous,
+            action_results=action_results,
+            screenshot=screenshot,
+        )
         body: dict[str, Any] = {
             "model": self._settings.llm_model,
+            "instructions": system_instructions(self._settings, native_computer=True),
             "previous_response_id": previous.response_id,
             "tools": [
                 computer_tool_schema(
@@ -119,10 +119,17 @@ class OpenAIComputerAdapter:
                     ],
                 }
             )
+        if previous.extra.get("last_screen_changed") is False:
+            body["input"].append(
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": feedback_text}],
+                }
+            )
         return await self._send(body)
 
     async def _send(self, body: dict[str, Any]) -> AgentResponse:
-        response = await self._client.post("/responses", json=body)
+        response = await self._post_responses_with_retry(body)
         if response.status_code >= 400:
             raise RuntimeError(
                 f"OpenAI Responses error {response.status_code}: {response.text[:1000]}"
@@ -133,6 +140,18 @@ class OpenAIComputerAdapter:
             display_width=self._settings.display_width,
             display_height=self._settings.display_height,
         )
+
+    async def _post_responses_with_retry(self, body: dict[str, Any]) -> httpx.Response:
+        last_exc: httpx.ReadTimeout | None = None
+        for attempt in range(2):
+            try:
+                return await self._client.post("/responses", json=body)
+            except httpx.ReadTimeout as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+        raise RuntimeError("OpenAI Responses request timed out after retry") from last_exc
 
 
 def _parse_response(

@@ -17,7 +17,7 @@ class SessionInfo(BaseModel):
 
 
 class CommandSmokeRequest(BaseModel):
-    operation: Literal["healthcheck", "screenshot", "xdotool_click_type"]
+    operation: Literal["healthcheck", "screenshot", "xdotool_click_type", "active_window_title"]
 
 
 class CommandSmokeResult(BaseModel):

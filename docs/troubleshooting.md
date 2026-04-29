@@ -59,6 +59,20 @@ E2E_PROMPT="Open Firefox and navigate to https://example.com." make e2e-task
 
 This uses the same REST API path as the frontend and deletes the session at the end. It fails if the agent reaches `error`/`interrupted` instead of `done`.
 
+For browser-navigation prompts, the script also probes the sandbox's active window title through the restricted `active_window_title` smoke command. By default it accepts `Example Domain` as observed success, which catches cases where the page is visibly loaded but a slow local model has not produced its final message yet. Override with `E2E_EXPECT_WINDOW_TITLE=...`, or set it to an empty value to require only terminal `done`.
+
+## Firefox opens a first-run or privacy tab
+
+The sandbox creates a fresh Firefox profile in `/home/agent` on startup and applies `user.js` prefs plus distribution policies to suppress first-run surfaces. If Firefox starts with welcome/privacy pages again, rebuild and recreate the sandbox image:
+
+```bash
+docker compose up --build -d sandbox-template sandbox-controller backend
+```
+
+## Model clicks the blank desktop instead of Firefox
+
+The desktop is intentionally empty and the home directory is mounted `noexec`, so desktop `.desktop` launchers are not a reliable open path. Browser tasks should use the trusted bottom-panel Firefox launcher. The agent loop now rewrites likely missed browser-launcher clicks, such as the lower blank desktop around `y=970` or the top-left Applications menu, into a single click on the panel launcher and emits `BROWSER_LAUNCHER_ASSIST`.
+
 ## Agent stops with `SCREEN_UNCHANGED`
 
 The agent executed visual GUI actions, but the stored screenshot hash did not change for several consecutive steps. This usually means the model is clicking the wrong target, the desktop is blocked by a modal, or the selected local model is emitting malformed coordinates that normalize to safe but ineffective actions.

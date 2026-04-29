@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import deque
 from typing import Any
@@ -13,7 +14,12 @@ from app.llm.base import (
     AgentResponse,
     Screenshot,
 )
-from app.llm.function_computer import SYSTEM_INSTRUCTIONS, parse_function_response
+from app.llm.function_computer import parse_function_response
+from app.llm.prompts import (
+    action_feedback_payload,
+    screen_feedback_text,
+    system_instructions,
+)
 from app.llm.tool_schema import function_tool_schema
 
 
@@ -76,28 +82,32 @@ class StatelessFunctionAdapter:
             session_id,
             deque(maxlen=self._settings.llm_history_window),
         )
-        executed = [
-            {
-                "type": result.action.type,
-                "status": result.status,
-                "duration_ms": result.duration_ms,
-                "error_code": result.error_code,
-            }
-            for result in action_results
-        ]
         history.append(
             {
                 "role": "assistant",
                 "content": [
                     {
                         "type": "output_text",
-                        "text": json.dumps({"executed_actions": executed}),
+                        "text": json.dumps(
+                            action_feedback_payload(
+                                previous=previous,
+                                action_results=action_results,
+                                screenshot=screenshot,
+                            )
+                        ),
                     }
                 ],
             }
         )
         screenshot_content: list[dict[str, Any]] = [
-            {"type": "input_text", "text": "Updated screenshot after the computer actions."}
+            {
+                "type": "input_text",
+                "text": screen_feedback_text(
+                    previous=previous,
+                    action_results=action_results,
+                    screenshot=screenshot,
+                ),
+            }
         ]
         if self._settings.llm_supports_vision:
             screenshot_content.append({"type": "input_image", "image_url": screenshot.data_url})
@@ -108,7 +118,7 @@ class StatelessFunctionAdapter:
         history = self._history[session_id]
         body: dict[str, Any] = {
             "model": self._settings.llm_model,
-            "instructions": SYSTEM_INSTRUCTIONS,
+            "instructions": system_instructions(self._settings, native_computer=False),
             "tools": [
                 function_tool_schema(
                     display_width=self._settings.display_width,
@@ -118,7 +128,7 @@ class StatelessFunctionAdapter:
             "tool_choice": "auto",
             "input": list(history),
         }
-        response = await self._client.post("/responses", json=body)
+        response = await self._post_responses_with_retry(body)
         if response.status_code >= 400:
             raise RuntimeError(
                 f"Responses error {response.status_code}: {response.text[:1000]}"
@@ -130,3 +140,15 @@ class StatelessFunctionAdapter:
         )
         parsed.extra = {**parsed.extra, "__session_id": session_id}
         return parsed
+
+    async def _post_responses_with_retry(self, body: dict[str, Any]) -> httpx.Response:
+        last_exc: httpx.ReadTimeout | None = None
+        for attempt in range(2):
+            try:
+                return await self._client.post("/responses", json=body)
+            except httpx.ReadTimeout as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+        raise RuntimeError("Responses request timed out after retry") from last_exc

@@ -10,6 +10,7 @@ ALLOWED_COMMANDS: dict[str, list[str]] = {
     "healthcheck": ["/usr/local/bin/healthcheck.sh"],
     "screenshot": ["/usr/local/bin/screenshot.sh", SCREENSHOT_PATH],
     "xdotool_click_type": ["/usr/local/bin/xdotool-smoke.sh"],
+    "active_window_title": ["xdotool", "getactivewindow", "getwindowname"],
 }
 
 

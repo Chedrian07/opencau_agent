@@ -40,6 +40,20 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends firefox \
     && rm -rf /var/lib/apt/lists/*
 
+RUN install -d -m 0755 /usr/lib/firefox/distribution \
+    && printf '%s\n' \
+        '{' \
+        '  "policies": {' \
+        '    "DisableAppUpdate": true,' \
+        '    "DisableFirefoxAccounts": true,' \
+        '    "DisablePocket": true,' \
+        '    "DontCheckDefaultBrowser": true,' \
+        '    "OverrideFirstRunPage": "",' \
+        '    "OverridePostUpdatePage": ""' \
+        '  }' \
+        '}' \
+        > /usr/lib/firefox/distribution/policies.json
+
 RUN groupadd --gid 1200 agent \
     && useradd --create-home --uid 1200 --gid 1200 --shell /bin/bash agent \
     && mkdir -p /home/agent/.config /home/agent/Downloads /workspace \

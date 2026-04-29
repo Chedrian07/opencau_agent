@@ -84,6 +84,84 @@ class NormalizeActionTests(unittest.TestCase):
         self.assertEqual(len(actions), 3)
         self.assertEqual([a.type for a in actions], ["screenshot", "wait", "click"])
 
+    def test_duplicate_left_click_pair_compacts_to_double_click(self) -> None:
+        actions = normalize_actions(
+            [
+                {"type": "click", "x": 37, "y": 282},
+                {"type": "click", "x": 37, "y": 282},
+                {"type": "wait", "duration_ms": 1000},
+            ]
+        )
+
+        self.assertEqual([a.type for a in actions], ["double_click", "wait"])
+        self.assertEqual(actions[0].x, 37)
+        self.assertEqual(actions[0].y, 282)
+
+    def test_different_clicks_are_not_compacted(self) -> None:
+        actions = normalize_actions(
+            [
+                {"type": "click", "x": 37, "y": 282},
+                {"type": "click", "x": 72, "y": 304},
+            ]
+        )
+
+        self.assertEqual([a.type for a in actions], ["click", "click"])
+
+    def test_duplicate_double_click_compacts_to_one_action(self) -> None:
+        actions = normalize_actions(
+            [
+                {"type": "double_click", "x": 72, "y": 304},
+                {"type": "double_click", "x": 72, "y": 304},
+            ]
+        )
+
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].type, "double_click")
+        self.assertEqual(actions[0].x, 72)
+        self.assertEqual(actions[0].y, 304)
+
+    def test_duplicate_type_and_keypress_compact_to_one_action(self) -> None:
+        actions = normalize_actions(
+            [
+                {"type": "type", "text": "https://example.com"},
+                {"type": "type", "text": "https://example.com"},
+                {"type": "keypress", "keys": ["Return"]},
+                {"type": "keypress", "keys": ["Return"]},
+            ]
+        )
+
+        self.assertEqual([a.type for a in actions], ["type", "keypress"])
+        self.assertEqual(actions[0].text, "https://example.com")
+        self.assertEqual(actions[1].keys, ["Return"])
+
+    def test_panel_double_click_downgrades_to_single_click(self) -> None:
+        actions = normalize_actions(
+            [{"type": "double_click", "x": 985, "y": 1053}],
+            display_width=1920,
+            display_height=1080,
+        )
+
+        self.assertEqual(actions[0].type, "click")
+        self.assertEqual(actions[0].x, 985)
+        self.assertEqual(actions[0].y, 1053)
+
+    def test_url_type_appends_return_when_missing(self) -> None:
+        actions = normalize_actions([{"type": "type", "text": "https://example.com"}])
+
+        self.assertEqual([a.type for a in actions], ["type", "keypress"])
+        self.assertEqual(actions[1].keys, ["Return"])
+
+    def test_url_type_does_not_append_duplicate_return(self) -> None:
+        actions = normalize_actions(
+            [
+                {"type": "type", "text": "https://example.com"},
+                {"type": "keypress", "keys": ["Return"]},
+            ]
+        )
+
+        self.assertEqual([a.type for a in actions], ["type", "keypress"])
+        self.assertEqual(actions[1].keys, ["Return"])
+
     def test_x_y_lists_collapse_to_midpoint(self) -> None:
         action = normalize_action({"type": "click", "x": [400, 600], "y": [300, 700]})
 

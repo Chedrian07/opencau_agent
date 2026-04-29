@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Any
 
 import httpx
@@ -13,19 +14,16 @@ from app.llm.base import (
     Screenshot,
 )
 from app.llm.normalize import normalize_actions
+from app.llm.prompts import (
+    action_feedback_payload,
+    screen_feedback_text,
+    system_instructions,
+)
 from app.llm.tool_schema import function_tool_schema
 
 
 SYSTEM_INSTRUCTIONS = (
-    "You operate a remote Ubuntu desktop via the 'computer' function tool. "
-    "Each call must include an actions array. Inspect the most recent screenshot "
-    "before deciding the next call. Use Korean for reasoning summaries and final "
-    "answers when appropriate. Do not open terminals or use shell workflows; rely "
-    "on normal GUI/browser actions. Click the visual center of targets, especially "
-    "desktop launchers, instead of their label or top-left edge. If the screen is "
-    "unchanged after an action, choose a different target or coordinate rather than "
-    "repeating the same action. The desktop provides a Firefox launcher when browser "
-    "navigation is needed. Finish without calling the tool when the task is done."
+    "You operate a remote Ubuntu desktop via the 'computer' function tool."
 )
 
 
@@ -66,7 +64,7 @@ class FunctionComputerAdapter:
             content.append({"type": "input_image", "image_url": screenshot.data_url})
         body: dict[str, Any] = {
             "model": self._settings.llm_model,
-            "instructions": SYSTEM_INSTRUCTIONS,
+            "instructions": system_instructions(self._settings, native_computer=False),
             "tools": [
                 function_tool_schema(
                     display_width=self._settings.display_width,
@@ -87,21 +85,17 @@ class FunctionComputerAdapter:
     ) -> AgentResponse:
         if previous.raw_call_id is None:
             raise RuntimeError("previous response has no function_call id")
-        executed = [
-            {
-                "type": result.action.type,
-                "status": result.status,
-                "duration_ms": result.duration_ms,
-                "error_code": result.error_code,
-            }
-            for result in action_results
-        ]
+        feedback_text = screen_feedback_text(
+            previous=previous,
+            action_results=action_results,
+            screenshot=screenshot,
+        )
         screenshot_msg = (
             [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": "Updated screenshot after the computer actions."},
+                        {"type": "input_text", "text": feedback_text},
                         {"type": "input_image", "image_url": screenshot.data_url},
                     ],
                 }
@@ -111,6 +105,7 @@ class FunctionComputerAdapter:
         )
         body: dict[str, Any] = {
             "model": self._settings.llm_model,
+            "instructions": system_instructions(self._settings, native_computer=False),
             "previous_response_id": previous.response_id,
             "tools": [
                 function_tool_schema(
@@ -124,10 +119,11 @@ class FunctionComputerAdapter:
                     "type": "function_call_output",
                     "call_id": previous.raw_call_id,
                     "output": json.dumps(
-                        {
-                            "status": "ok" if all(r.status == "ok" for r in action_results) else "partial",
-                            "executed_actions": executed,
-                        }
+                        action_feedback_payload(
+                            previous=previous,
+                            action_results=action_results,
+                            screenshot=screenshot,
+                        )
                     ),
                 },
                 *screenshot_msg,
@@ -136,7 +132,7 @@ class FunctionComputerAdapter:
         return await self._send(body)
 
     async def _send(self, body: dict[str, Any]) -> AgentResponse:
-        response = await self._client.post("/responses", json=body)
+        response = await self._post_responses_with_retry(body)
         if response.status_code >= 400:
             raise RuntimeError(
                 f"Responses error {response.status_code}: {response.text[:1000]}"
@@ -147,6 +143,18 @@ class FunctionComputerAdapter:
             display_width=self._settings.display_width,
             display_height=self._settings.display_height,
         )
+
+    async def _post_responses_with_retry(self, body: dict[str, Any]) -> httpx.Response:
+        last_exc: httpx.ReadTimeout | None = None
+        for attempt in range(2):
+            try:
+                return await self._client.post("/responses", json=body)
+            except httpx.ReadTimeout as exc:
+                last_exc = exc
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+        raise RuntimeError("Responses request timed out after retry") from last_exc
 
 
 def parse_function_response(

@@ -31,7 +31,7 @@ class SessionResponse(BaseModel):
 
 
 class CommandRequest(BaseModel):
-    operation: Literal["healthcheck", "screenshot", "xdotool_click_type"]
+    operation: Literal["healthcheck", "screenshot", "xdotool_click_type", "active_window_title"]
 
 
 class CommandResult(BaseModel):

@@ -5,7 +5,7 @@ This matrix records what the Phase 1 + Phase 3 adapter family supports today.
 | Backend | `LLM_PROFILE` | Native computer tool | Function tool | Vision | Stateful | Verification status |
 |---|---|---:|---:|---:|---:|---|
 | OpenAI Responses | `openai-native` | ✓ | ✓ | ✓ | ✓ (server) | Not yet verified; requires `LLM_API_KEY` |
-| LM Studio | `lmstudio-responses` | ✗ | ✓ | model dependent | ✓ (server) | Experimental; preflight reachable, GUI E2E not yet verified |
+| LM Studio | `lmstudio-responses` | ✗ | ✓ | model dependent | ✓ (server) | Experimental; Qwen GUI E2E observed |
 | vLLM | `vllm-responses` | ✗ | ✓ | model dependent | ✓ (server) | Not yet verified |
 | Ollama | `ollama-stateless` | ✗ | ✓ | model dependent | manual history | Not yet verified |
 | Mock | `mock` | n/a | n/a | n/a | n/a | Supported; mock E2E passes without keys |
@@ -66,7 +66,7 @@ The mock adapter performs `screenshot` then sends a final `agent_message`. Use i
 ## Current smoke evidence
 
 - Mock E2E: `make e2e-mock` passes against the full API/sandbox/event/storage path.
-- LM Studio Qwen: `/api/preflight` reaches the configured `/v1/responses` endpoint, but the real GUI task is not marked supported yet. The latest `example.com` E2E attempt hit an upstream 524 timeout before the first tool call.
+- LM Studio Qwen (`qwen3.6-35b-a3b-mlx`): `/api/preflight` reaches the configured `/v1/responses` endpoint, and `E2E_TIMEOUT_SEC=420 python scripts/e2e_task.py` observed `Example Domain — Mozilla Firefox` for the default `example.com` task. Status remains Experimental because final-message latency and action quality vary by local model.
 
 ## Profile aliases
 

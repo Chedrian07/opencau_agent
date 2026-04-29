@@ -6,6 +6,6 @@ OUT="${1:-/tmp/screenshot.png}"
 export DISPLAY="${DISPLAY_VALUE}"
 
 mkdir -p "$(dirname "${OUT}")"
-scrot "${OUT}"
+scrot --overwrite "${OUT}"
 test -s "${OUT}"
 sha256sum "${OUT}"

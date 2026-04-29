@@ -10,7 +10,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agent.events import event_broker
-from app.agent.loop import AgentLoopDeps, run_agent_loop
+from app.agent.loop import AgentLoopDeps, _assist_browser_launcher_actions, run_agent_loop
 from app.config import Settings
 from app.llm.base import ActionResult, AdapterCapability, AgentResponse, Screenshot
 from app.llm.mock import MockComputerAdapter
@@ -253,6 +253,42 @@ class RunAgentLoopMockTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task_status_events[-1]["state"], "error")
         self.assertEqual(task_status_events[-1]["label"], "Screen unchanged loop")
         self.assertEqual(len(executor.calls), 2)
+
+
+class BrowserLauncherAssistTests(unittest.TestCase):
+    def test_rewrites_lower_blank_desktop_click_for_browser_task(self) -> None:
+        settings = Settings(_env_file=None, llm_profile="mock", display_width=1920, display_height=1080)
+        actions = [
+            Action(type="double_click", x=511, y=974),
+            Action(type="click", x=511, y=974),
+        ]
+
+        assisted, message = _assist_browser_launcher_actions(
+            actions,
+            user_message="Open Firefox and navigate to https://example.com",
+            settings=settings,
+            panel_launcher_opened=False,
+        )
+
+        self.assertIsNotNone(message)
+        self.assertEqual(len(assisted), 1)
+        self.assertEqual(assisted[0].type, "click")
+        self.assertEqual(assisted[0].x, 985)
+        self.assertEqual(assisted[0].y, 1053)
+
+    def test_does_not_rewrite_after_browser_launcher_opened(self) -> None:
+        settings = Settings(_env_file=None, llm_profile="mock", display_width=1920, display_height=1080)
+        actions = [Action(type="click", x=511, y=974)]
+
+        assisted, message = _assist_browser_launcher_actions(
+            actions,
+            user_message="Open Firefox and navigate to https://example.com",
+            settings=settings,
+            panel_launcher_opened=True,
+        )
+
+        self.assertIsNone(message)
+        self.assertEqual(assisted, actions)
 
 
 if __name__ == "__main__":

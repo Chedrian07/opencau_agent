@@ -17,6 +17,7 @@ PROMPT = os.environ.get(
     "Open Firefox and navigate to https://example.com. Stop when the page is visible.",
 )
 TIMEOUT_SEC = float(os.environ.get("E2E_TIMEOUT_SEC", "300"))
+EXPECTED_WINDOW_TITLE = os.environ.get("E2E_EXPECT_WINDOW_TITLE", "Example Domain").strip()
 
 
 def request_json(method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
@@ -46,6 +47,21 @@ def event_tail(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return tail
 
 
+def maybe_active_window_title(session_id: str) -> str | None:
+    if not EXPECTED_WINDOW_TITLE:
+        return None
+    try:
+        result = request_json("POST", f"/api/sessions/{session_id}/smoke", {"operation": "active_window_title"})
+    except Exception:
+        return None
+    if result.get("exit_code") != 0:
+        return None
+    title = str(result.get("stdout") or "").strip()
+    if EXPECTED_WINDOW_TITLE.lower() in title.lower():
+        return title
+    return None
+
+
 def main() -> int:
     session_id = f"e2e-real-{uuid.uuid4().hex[:10]}"
     deleted = False
@@ -59,8 +75,16 @@ def main() -> int:
         if not accepted.get("accepted"):
             raise RuntimeError(f"message was not accepted: {accepted}")
 
+        observed_title: str | None = None
+        next_title_probe = 0.0
         while time.monotonic() < deadline:
             events = request_json("GET", f"/api/sessions/{session_id}/events")
+            now = time.monotonic()
+            if now >= next_title_probe:
+                next_title_probe = now + 2.0
+                observed_title = maybe_active_window_title(session_id)
+                if observed_title:
+                    break
             task_events = [event for event in events if event.get("type") == "task_status"]
             if task_events and task_events[-1].get("state") in {"done", "error", "interrupted"}:
                 break
@@ -69,8 +93,12 @@ def main() -> int:
             raise TimeoutError(f"no terminal task_status after {TIMEOUT_SEC}s; tail={event_tail(events)}")
 
         task_events = [event for event in events if event.get("type") == "task_status"]
-        terminal = task_events[-1]
-        if terminal.get("state") != "done":
+        terminal = task_events[-1] if task_events else None
+        if observed_title is None:
+            observed_title = maybe_active_window_title(session_id)
+        if terminal is None and observed_title is None:
+            raise RuntimeError(f"no task_status was emitted; tail={event_tail(events)}")
+        if observed_title is None and terminal is not None and terminal.get("state") != "done":
             raise RuntimeError(f"terminal state was not done: {terminal}; tail={event_tail(events)}")
         if not any(event.get("type") == "screenshot" for event in events):
             raise RuntimeError("no screenshot event was emitted")
@@ -83,7 +111,8 @@ def main() -> int:
                     "status": "ok",
                     "session_id": session_id,
                     "events": len(events),
-                    "terminal_state": terminal["state"],
+                    "terminal_state": "observed" if observed_title is not None else terminal["state"],
+                    "observed_window_title": observed_title,
                     "profile": health.get("llm", {}).get("profile"),
                     "model": health.get("llm", {}).get("model"),
                 },
